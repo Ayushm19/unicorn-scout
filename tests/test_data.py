@@ -17,6 +17,10 @@ def test_load_and_clean_dataset():
     # Shifted columns: sector names must not leak into investors.
     assert "Alternative Lending" not in by_name["Perfios"]["investors"]
     assert all(c["city"] == c["city"].strip() for c in companies)
+    # Shifted columns: employee counts must not pose as money.
+    assert by_name["Open"]["total_funding"] is None and by_name["Policybazaar"]["valuation"] is None
+    assert by_name["LivSpace"]["valuation"].startswith("1.33B SGD")
+    assert by_name["Razorpay"]["total_funding"].startswith("$")
 
 
 def test_sector_groups_cover_fintech():

@@ -54,6 +54,12 @@ CREATE TABLE IF NOT EXISTS chat_logs (
     error TEXT
 );
 CREATE INDEX IF NOT EXISTS chat_logs_session_idx ON chat_logs (session_id, created_at);
+-- v2: token usage, per-stage timings and the context-window breakdown shown in the UI.
+ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS prompt_tokens INT;
+ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS completion_tokens INT;
+ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS stage_ms JSONB;
+ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS context JSONB;
+ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS clarifying_options TEXT[];
 
 -- General application logs (warnings, errors, lifecycle events).
 CREATE TABLE IF NOT EXISTS app_logs (
@@ -163,10 +169,11 @@ def company_names() -> str:
 
 # --- chat logs / history -----------------------------------------------------
 
+_JSON_COLS = ("filters", "prompt_versions", "stage_ms", "context")
+
+
 def insert_chat_log(row: dict) -> None:
-    row = {**row,
-           "filters": json.dumps(row.get("filters")) if row.get("filters") is not None else None,
-           "prompt_versions": json.dumps(row.get("prompt_versions") or {})}
+    row = {**row, **{k: json.dumps(row[k]) for k in _JSON_COLS if row.get(k) is not None}}
     cols = ", ".join(row)
     params = ", ".join(f"%({k})s" for k in row)
     conn().execute(f"INSERT INTO chat_logs ({cols}) VALUES ({params})", row)
@@ -183,22 +190,20 @@ def recent_turns(session_id: str, n: int) -> list[dict]:
     return list(reversed(rows))
 
 
-def last_result_ids(session_id: str) -> list[int]:
-    row = conn().execute(
-        """SELECT retrieved_ids FROM chat_logs
-           WHERE session_id = %s AND cardinality(retrieved_ids) > 0
-           ORDER BY created_at DESC LIMIT 1""",
-        (session_id,),
-    ).fetchone()
-    return row["retrieved_ids"] if row else []
-
-
 def session_history(session_id: str) -> list[dict]:
     return conn().execute(
-        """SELECT user_query, response, outcome, created_at FROM chat_logs
-           WHERE session_id = %s ORDER BY created_at""",
+        """SELECT user_query, response, outcome, intent, filters, retrieved_ids, prompt_versions, provider, model,
+                  used_fallback, latency_ms, prompt_tokens, completion_tokens, stage_ms, context,
+                  clarifying_options, trace_id, created_at
+           FROM chat_logs WHERE session_id = %s ORDER BY created_at""",
         (session_id,),
     ).fetchall()
+
+
+def companies_by_ids(ids: list[int]) -> list[dict]:
+    if not ids:
+        return []
+    return conn().execute(f"SELECT {_PUBLIC_COLS} FROM companies WHERE id = ANY(%s)", (ids,)).fetchall()
 
 
 def metrics() -> dict:
@@ -211,6 +216,7 @@ def metrics() -> dict:
                   count(*) FILTER (WHERE outcome = 'off_topic') AS off_topic,
                   count(*) FILTER (WHERE outcome = 'error') AS errors,
                   count(*) FILTER (WHERE used_fallback) AS llm_fallbacks,
+                  coalesce(sum(prompt_tokens + completion_tokens), 0) AS tokens,
                   round(avg(latency_ms)) AS avg_latency_ms,
                   percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95_latency_ms
            FROM chat_logs"""

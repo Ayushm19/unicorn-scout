@@ -18,6 +18,7 @@ LLM_PROVIDERS = [
         "base_url": "https://api.groq.com/openai/v1",
         "keys": GROQ_API_KEYS,
         "model": "openai/gpt-oss-120b",
+        "context_window": 131_072,
         "extra": {"reasoning_effort": "low"},
     },
     {
@@ -25,6 +26,7 @@ LLM_PROVIDERS = [
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "keys": GEMINI_API_KEYS,
         "model": "gemini-3.5-flash-lite",
+        "context_window": 1_048_576,
         "extra": {"reasoning_effort": "low"},  # default thinking made free-tier calls ~3x slower
     },
 ]

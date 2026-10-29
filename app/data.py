@@ -5,6 +5,7 @@ Known quirks of the source file (see README "Data quality"):
 - The rupee sign was lost upstream and appears as "?" (e.g. "?569Cr").
 - `location` values carry trailing whitespace.
 - `top_investors_1/2` sometimes hold sector names instead of investors (shifted columns).
+- `total_funding_till_date` / `valuation` sometimes hold employee counts (same shift); dropped.
 - 56 fine-grained `primary_sector` values and no "FinTech"-style grouping, so we add one.
 """
 import csv
@@ -52,6 +53,12 @@ def fix_rupee(value: str) -> str:
     return re.sub(r"\?(?=\d)", "₹", value)
 
 
+def money(value: str) -> str | None:
+    """Keep a money field only if it is money. Shifted columns put employee counts here ("289 as on ...")."""
+    value = fix_rupee(value)
+    return value if re.match(r"^[$₹]", value) or re.search(r"\b(USD|INR|SGD)\b", value) else None
+
+
 def normalize_city(city: str | None) -> str | None:
     if not city:
         return None
@@ -78,9 +85,9 @@ def _row_to_company(row: dict) -> dict:
         "description": r["company_background"],
         "unicorn_info": r["company_info"],
         "investors": investors,
-        "valuation": fix_rupee(r["valuation"]) or None,
-        "annual_revenue": fix_rupee(r["annual_revenue"]) or None,
-        "total_funding": r["total_funding_till_date"] or None,
+        "valuation": money(r["valuation"]),
+        "annual_revenue": money(r["annual_revenue"]),
+        "total_funding": money(r["total_funding_till_date"]),
         "employee_count": r["employee_count"] or None,
         "latest_funding_round": r["latest_funding_round"] or None,
         "time_to_unicorn": r["time_to_unicorn"] or None,
