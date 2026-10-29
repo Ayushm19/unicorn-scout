@@ -242,7 +242,7 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
     return {"reply": res.text.strip(), "companies": cards}
 
 
-def handle_turn(session_id: str, message: object, emit: Emit | None = None) -> dict:
+def handle_turn(session_id: str, message: object, emit: Emit | None = None, user_id: str | None = None) -> dict:
     """Run one turn end to end. Never raises: failures become a logged 'error' outcome."""
     emit = emit or (lambda event, data: None)
     t0 = time.perf_counter()
@@ -250,7 +250,7 @@ def handle_turn(session_id: str, message: object, emit: Emit | None = None) -> d
     rec = {"session_id": session_id, "user_query": str(message)[:2000], "outcome": "error", "retrieved_ids": [],
            "used_fallback": False, "prompt_tokens": 0, "completion_tokens": 0, "stage_ms": {}}
     with lf.start_as_current_observation(name="chat-turn", as_type="chain", input=rec["user_query"]) as root, \
-            propagate_attributes(session_id=session_id, trace_name="chat-turn"):
+            propagate_attributes(session_id=session_id, user_id=user_id, trace_name="chat-turn"):
         try:
             result = _turn(session_id, message, rec, emit)
         except Exception as e:

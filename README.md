@@ -47,6 +47,8 @@ Fill in `.env` (never committed):
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` | Langfuse → project → Settings → API Keys |
 | `GROQ_API_KEYS` | console.groq.com/keys; comma-separate several keys to rotate on rate limits |
 | `GEMINI_API_KEYS` | aistudio.google.com/apikey; comma-separated as above |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google Cloud → Google Auth Platform → Clients → Web application. Authorized redirect URI: `http://localhost:8000/auth/callback` (add `https://<your-domain>/auth/callback` when deployed). Optional: without them the app runs guest-only |
+| `SESSION_SECRET` | Any long random string; signs the login cookie. Rotating it signs everyone out |
 
 Load the data and prompts once:
 
@@ -72,9 +74,34 @@ Variables. Vercel detects the FastAPI `app` in `app/main.py`, serves `public/` f
 |---|---|---|
 | `POST` | `/api/chat/stream` | Server-sent events: `session`, `stage` (each pipeline step with timing and detail), `companies`, `token` (answer text), `result` |
 | `POST` | `/api/chat` | Same turn as one JSON response: reply, outcome, intent, filters, companies, tokens, stage timings, context breakdown, prompt versions, trace URL |
-| `GET` | `/api/sessions/{id}` | Every turn of a session with its company cards, so the UI can rebuild itself after a reload |
+| `GET` | `/api/sessions` | The current user's chats (id, title, last activity, turn count) for the sidebar |
+| `GET` | `/api/sessions/{id}` | Every turn of a chat with its company cards, so the UI can rebuild itself after a reload. 404 unless you own it |
+| `DELETE` | `/api/sessions/{id}` | Soft-deletes a chat you own (hidden from you, logs kept for analytics) |
+| `GET` | `/auth/login`, `/auth/callback` | Google sign-in (authorization-code flow with a CSRF `state`) |
+| `POST` | `/auth/logout` | Clears the session cookie |
+| `GET` | `/api/me` | The current user (or guest) and whether Google sign-in is configured |
 | `GET` | `/api/metrics` | Query counts, clarifications, blocked, off-topic, errors, fallbacks, tokens, avg/p95 latency, and the same split by prompt version |
 | `GET` | `/api/health` | Database connectivity check |
+
+Chat endpoints identify the caller by the `scout_session` cookie, so API clients must keep cookies between
+requests (e.g. one `httpx.Client`). The first message from a cookie-less client creates a guest account.
+
+### Accounts, chats and reloads
+
+- **Who you are.** A signed, HttpOnly cookie holds only your user id. Everyone starts as a guest (a `users` row
+  with no Google id, created on the first message). Signing in with Google upserts your account by Google's
+  stable `sub` id and moves that browser's guest chats into it, so nothing typed before signing in is lost. Chats
+  are never moved out of a signed-in account.
+- **Where chats live.** `chat_sessions` (id, owner, title, timestamps, soft delete) plus one `chat_logs` row per turn.
+  Every read and write checks ownership in SQL; someone else's chat id returns 404, never its contents.
+- **What happens on a hard reload.** The open chat is in the URL (`/chat?c=<id>`), and the last one is also remembered
+  in `localStorage`. On load the page asks `/api/sessions/<id>` for the turns, then rebuilds the messages, tables, fact
+  cards and the Context panel (from the stored token counts, stage timings and context breakdown). Nothing is kept
+  only in the browser, so the same chat opens identically on another device after signing in.
+- **What the model remembers.** Independently of the UI, every turn rebuilds the model's context on the server from
+  the last 3 turns of *that chat* in `chat_logs`, plus the companies from its latest answer ("these"). "New chat"
+  just starts a new chat id: the model starts with an empty memory, and the old chat stays in the sidebar.
+- **Langfuse** receives the opaque user id (never the email), so the Users view groups traces per person.
 
 ## The web app
 
@@ -90,8 +117,10 @@ Variables. Vercel detects the FastAPI `app` in `app/main.py`, serves `public/` f
     into instructions / company index / conversation memory / retrieved companies / question, plus the
     turn's intent, filters, model, prompt versions, a stage waterfall, the working set that "these" refers to,
     session totals, and a link to the Langfuse trace.
+  - **Sidebar** of past chats grouped by Today / Yesterday / Previous 7 and 30 days / Older, two-step delete,
+    and a Google sign-in / account box.
   - Follow-up suggestions computed from the results, conversation restore after reload, keyboard shortcuts,
-    dark mode, mobile layout, and reduced-motion support.
+    light mode by default with a dark toggle, mobile layout, and reduced-motion support.
 
 ## Architecture
 
@@ -121,7 +150,8 @@ chatbot.handle_turn(session, message, emit) ── one Langfuse trace per turn, 
 | `app/sanitize.py` | Input normalization and injection heuristics |
 | `app/chatbot.py` | Orchestrates a turn and emits stage, company and token events |
 | `app/observability.py` | JSON logs to stdout and to Postgres |
-| `app/main.py` | HTTP routes, the SSE relay and the static pages |
+| `app/auth.py` | Google sign-in, the session cookie, and the current user (guest or signed in) |
+| `app/main.py` | HTTP routes, ownership checks, the SSE relay and the static pages |
 | `public/` | Landing page, chat app and shared design tokens (`base.css`) |
 
 ### Design decisions
@@ -197,7 +227,9 @@ chatbot.handle_turn(session, message, emit) ── one Langfuse trace per turn, 
   public dataset, but not for private user data.
 - The context-window breakdown estimates each section's share from its character count, scaled to the provider's
   real prompt-token total.
-- No authentication or per-user rate limiting. Session ids are random UUIDs held in the browser.
+- The Google OAuth app is in "Testing" mode, so only accounts listed as test users can sign in until it is published.
+  Guests can always chat. Before deploying, add the production redirect URI to the OAuth client.
+- No per-user rate limiting yet.
 - Stopping a streaming answer in the UI closes the stream; the server still finishes and logs the turn.
 
 ## With more time

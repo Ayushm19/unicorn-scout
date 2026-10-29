@@ -7,6 +7,10 @@ def _keys(name: str) -> list[str]:
 
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+SESSION_SECRET = os.getenv("SESSION_SECRET", "")
+ON_VERCEL = bool(os.getenv("VERCEL"))  # set by Vercel; enables Secure cookies and https redirect URIs
 GROQ_API_KEYS = _keys("GROQ_API_KEYS")
 GEMINI_API_KEYS = _keys("GEMINI_API_KEYS")
 

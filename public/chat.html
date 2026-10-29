@@ -9,7 +9,44 @@
 <link rel="stylesheet" href="/base.css">
 <style>
   html, body { height: 100%; }
-  body { display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
+  body { display: grid; grid-template-columns: 264px minmax(0, 1fr); grid-template-rows: 100%; overflow: hidden; }
+  .app { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
+
+  /* sidebar: past chats + account */
+  .side { border-right: 1px solid var(--line); background: var(--paper-2); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; min-height: 0; }
+  .side-top { height: 54px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; }
+  .new-chat { margin: 2px 12px 8px; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 8px;
+              border: 1px solid var(--line-2); background: var(--card); font-size: 13.5px; font-weight: 500; }
+  .new-chat:hover { border-color: var(--ink-3); }
+  .new-chat svg { width: 15px; height: 15px; }
+  .chats { overflow-y: auto; padding: 0 8px 12px; }
+  .grp { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding: 14px 8px 5px; }
+  .chat-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; border-radius: 7px; }
+  .chat-item a { padding: 7px 8px; font-size: 13.5px; color: var(--ink-2); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 7px; }
+  .chat-item:hover { background: var(--line); }
+  .chat-item.active { background: var(--card); box-shadow: inset 0 0 0 1px var(--line-2); }
+  .chat-item.active a { color: var(--ink); font-weight: 500; }
+  .del { opacity: 0; border: 0; background: transparent; color: var(--ink-3); height: 28px; min-width: 28px; border-radius: 6px; display: grid; place-items: center; }
+  .chat-item:hover .del, .del:focus-visible, .del.confirm { opacity: 1; }
+  .del:hover { color: var(--bad); }
+  .del.confirm { color: #fff; background: var(--bad); font-size: 11.5px; padding: 0 9px; }
+  .side-empty { padding: 10px; font-size: 13px; color: var(--ink-3); line-height: 1.5; }
+  .account { border-top: 1px solid var(--line); padding: 12px; display: grid; gap: 10px; }
+  .who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .who img, .who .ph { width: 30px; height: 30px; border-radius: 50%; flex: none; }
+  .who .ph { background: var(--line-2); color: var(--ink-2); display: grid; place-items: center; }
+  .who > div { min-width: 0; flex: 1; }
+  .who b { display: block; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .who span { display: block; font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gbtn { display: flex; align-items: center; justify-content: center; gap: 10px; height: 38px; border-radius: 8px; border: 1px solid var(--line-2);
+          background: var(--card); font-size: 13.5px; font-weight: 500; text-decoration: none; color: var(--ink); }
+  .gbtn:hover { border-color: var(--ink-3); }
+  .signout { border: 0; background: transparent; font-size: 12px; color: var(--ink-3); padding: 4px 6px; border-radius: 6px; }
+  .signout:hover { color: var(--ink); background: var(--line); }
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 9px 14px;
+           border-radius: 8px; font-size: 13px; z-index: 60; box-shadow: var(--shadow); animation: rise .2s ease; }
+  .icon-btn.menu-btn { display: none; }
+  .scrim { display: none; }
 
   /* top bar */
   .top { display: flex; align-items: center; gap: 14px; height: 54px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--paper); }
@@ -190,19 +227,41 @@
     .starters { grid-template-columns: 1fr; }
     .top .kbd-hint, .box .hint { display: none; }
   }
+  @media (max-width: 980px) {
+    body { grid-template-columns: minmax(0, 1fr); }
+    .side { position: fixed; inset: 0 auto 0 0; width: min(300px, 86vw); z-index: 40; transform: translateX(-100%); transition: transform .25s ease; box-shadow: var(--shadow); }
+    body.side-open .side { transform: none; }
+    body.side-open .scrim { display: block; position: fixed; inset: 0; z-index: 35; background: rgba(0, 0, 0, .25); }
+    .icon-btn.menu-btn { display: inline-flex; }
+  }
   @media (max-width: 600px) {
-    .top { gap: 8px; padding: 0 12px; } .top .brand > span, .icon-btn .lbl { display: none; }
+    .top { gap: 8px; padding: 0 12px; } .icon-btn .lbl { display: none; }
     .icon-btn { padding: 0 9px; } .inner { padding: 20px 14px; } .composer { padding: 8px 12px 12px; }
     .u { max-width: 90%; } .facts { grid-template-columns: 1fr 1fr; }
   }
 </style>
 </head>
 <body>
+<aside class="side" id="side" aria-label="Your chats">
+  <div class="side-top">
+    <a class="brand" href="/" aria-label="Unicorn Scout home">
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="var(--ink)"/><path d="M6 19 18 5l-4.5 14Z" fill="var(--paper)"/><path d="M9.6 16.2l4.4.9M11.6 13.4l3.4.7" stroke="var(--ink)" stroke-width="1.2"/><circle cx="18" cy="5" r="2" fill="var(--accent)"/></svg>
+      <span>unicorn <span class="slash">/</span> scout</span>
+    </a>
+  </div>
+  <button class="new-chat" id="newBtn" type="button">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>New chat
+  </button>
+  <nav class="chats" id="chats" aria-label="Past chats"></nav>
+  <div class="account" id="account"></div>
+</aside>
+<div class="scrim" id="scrim"></div>
+
+<div class="app">
 <header class="top">
-  <a class="brand" href="/" aria-label="Unicorn Scout home">
-    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="var(--ink)"/><path d="M6 19 18 5l-4.5 14Z" fill="var(--paper)"/><path d="M9.6 16.2l4.4.9M11.6 13.4l3.4.7" stroke="var(--ink)" stroke-width="1.2"/><circle cx="18" cy="5" r="2" fill="var(--accent)"/></svg>
-    <span>unicorn <span class="slash">/</span> scout</span>
-  </a>
+  <button class="icon-btn menu-btn" id="menuBtn" type="button" aria-label="Show chats" aria-controls="side">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg>
+  </button>
   <div class="title" id="title"></div>
   <button class="theme-btn" type="button" onclick="toggleTheme()" aria-label="Toggle dark mode">
     <svg class="moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13.5 9.6A5.6 5.6 0 0 1 6.4 2.5a5.6 5.6 0 1 0 7.1 7.1Z"/></svg>
@@ -211,10 +270,6 @@
   <button class="icon-btn" id="ctxBtn" aria-pressed="true" aria-controls="ctx" title="Toggle context panel">
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M10 2.5v11"/></svg>
     <span class="lbl">Context</span>
-  </button>
-  <button class="icon-btn" id="newBtn" title="Start a new conversation">
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 3v10M3 8h10"/></svg>
-    <span class="lbl">New chat</span>
   </button>
 </header>
 
@@ -240,6 +295,7 @@
   <aside class="ctx" id="ctx" aria-label="Context panel">
     <div class="ctx-in" id="ctxIn"></div>
   </aside>
+</div>
 </div>
 
 <script>
@@ -555,6 +611,7 @@ async function ask(text) {
   try {
     const res = await fetch("/api/chat/stream", {method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({message: text, session_id: sessionId}), signal: busy.signal});
+    if (res.status === 404) { sessionId = null; store.set("session_id", null); setUrl(null); throw new Error("gone"); }
     if (!res.ok || !res.body) throw new Error("HTTP " + res.status);
     const reader = res.body.getReader(), dec = new TextDecoder();
     let buf = "";
@@ -568,7 +625,7 @@ async function ask(text) {
         const ev = chunk.match(/^event: (.*)$/m)?.[1], raw = chunk.match(/^data: (.*)$/m)?.[1];
         if (!ev || raw == null) continue;
         const d = JSON.parse(raw);
-        if (ev === "session") { sessionId = d.session_id; store.set("session_id", sessionId); }
+        if (ev === "session") { sessionId = d.session_id; store.set("session_id", sessionId); setUrl(sessionId); }
         else if (ev === "stage") turn.stage(d);
         else if (ev === "companies") { turn.scoped = !!turn.steps.retrieve?.textContent.includes("scoped"); turn.companies(d); }
         else if (ev === "token") turn.token(d.text);
@@ -577,12 +634,16 @@ async function ask(text) {
     }
     if (!result) throw new Error("stream ended early");
   } catch (e) {
-    result = {reply: e.name === "AbortError" ? "Stopped. The server may still finish and log this turn." : "Couldn't reach the server. Check your connection and try again.",
+    result = {reply: e.name === "AbortError" ? "Stopped. The server may still finish and log this turn."
+                   : e.message === "gone" ? "This chat was deleted or belongs to another account. Your next message starts a new chat."
+                   : "Couldn't reach the server. Check your connection and try again.",
               outcome: "error", latency_ms: Math.round(performance.now() - turn.t0), stage_ms: {}, retry: e.name === "AbortError" ? null : text};
   } finally { busy = null; setBusy(false); }
   turn.finish(result);
   turns.push({...result, companies: result.companies || []});
   renderContext();
+  loadSessions();
+  if (!account?.user) loadAccount();  // the first message creates the guest account
   input.focus();
 }
 
@@ -614,10 +675,25 @@ function showEmpty() {
   log.append(e);
 }
 
-async function restore() {
+/* ---------- chats, routing, account ---------- */
+// The open chat lives in the URL (/chat?c=<id>), so reloads, bookmarks and new tabs land on it.
+function setUrl(id) { history.replaceState(null, "", id ? `/chat?c=${id}` : "/chat"); }
+function closeSide() { document.body.classList.remove("side-open"); }
+function toast(msg) {
+  document.querySelector(".toast")?.remove();
+  const t = el("div", "toast"); t.setAttribute("role", "status"); t.textContent = msg; document.body.append(t);
+  setTimeout(() => t.remove(), 3200);
+}
+
+async function openSession(id, {quiet = false} = {}) {
+  if (busy) busy.abort();
+  turns = []; log.innerHTML = ""; closeSide();
+  sessionId = id || null; store.set("session_id", sessionId); setUrl(sessionId); renderChats();
   if (!sessionId) { showEmpty(); renderContext(); setTitle(""); return; }
+  log.innerHTML = '<p class="muted shimmer" style="margin-top:12vh;text-align:center">Loading chat…</p>';
   try {
     const res = await fetch(`/api/sessions/${sessionId}`);
+    log.innerHTML = "";
     const hist = res.ok ? await res.json() : [];
     if (!hist.length) throw 0;
     setTitle(hist[0].user_query);
@@ -628,7 +704,68 @@ async function restore() {
       turns.push(r);
     }
     renderContext(); scrollDown(true);
-  } catch { sessionId = null; store.set("session_id", null); showEmpty(); renderContext(); setTitle(""); }
+  } catch {
+    await openSession(null);
+    if (!quiet) toast("That chat isn't available. It may have been deleted or belong to another account.");
+  }
+}
+
+let chats = [];
+const TRASH = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg>';
+async function loadSessions() {
+  try { const r = await fetch("/api/sessions"); chats = r.ok ? await r.json() : []; } catch { chats = []; }
+  renderChats();
+}
+function renderChats() {
+  const nav = $("chats");
+  if (!chats.length) { nav.innerHTML = '<p class="side-empty">Your chats will appear here.</p>'; return; }
+  const now = new Date(), day = 864e5, today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const bucket = t => { const ts = new Date(t).getTime();
+    return ts >= today ? "Today" : ts >= today - day ? "Yesterday" : ts >= today - 7 * day ? "Previous 7 days" : ts >= today - 30 * day ? "Previous 30 days" : "Older"; };
+  nav.innerHTML = "";
+  let group = null;
+  for (const c of chats) {
+    const g = bucket(c.updated_at);
+    if (g !== group) { nav.append(el("div", "grp", esc(g))); group = g; }
+    const item = el("div", "chat-item" + (c.id === sessionId ? " active" : ""));
+    const a = el("a"); a.href = `/chat?c=${c.id}`; a.textContent = c.title; a.title = c.title;
+    if (c.id === sessionId) a.setAttribute("aria-current", "page");
+    a.onclick = e => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); c.id === sessionId ? closeSide() : openSession(c.id); };
+    const del = el("button", "del", TRASH); del.type = "button"; del.setAttribute("aria-label", `Delete chat: ${c.title}`);
+    del.onclick = async () => {  // two-step: first click arms, second deletes
+      if (!del.classList.contains("confirm")) {
+        del.classList.add("confirm"); del.textContent = "Delete";
+        setTimeout(() => { if (del.isConnected) { del.classList.remove("confirm"); del.innerHTML = TRASH; } }, 3000);
+        return;
+      }
+      const r = await fetch(`/api/sessions/${c.id}`, {method: "DELETE"});
+      if (!r.ok) return toast("Couldn't delete that chat.");
+      chats = chats.filter(x => x.id !== c.id);
+      if (c.id === sessionId) await openSession(null); else renderChats();
+      toast("Chat deleted");
+    };
+    item.append(a, del); nav.append(item);
+  }
+}
+
+const GOOGLE_G = '<svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.7-.4-3.9z"/></svg>';
+let account = null;
+async function loadAccount() {
+  let me = {user: null, google_enabled: false};
+  try { me = await (await fetch("/api/me")).json(); } catch {}
+  account = me;
+  const u = me.user, box = $("account");
+  if (u?.signed_in) {
+    const initial = esc((u.name || u.email || "?").trim()[0].toUpperCase());
+    box.innerHTML = `<div class="who">${u.picture ? `<img src="${esc(u.picture)}" alt="" referrerpolicy="no-referrer">` : `<span class="ph">${initial}</span>`}
+      <div><b>${esc(u.name || u.email)}</b><span>${esc(u.email)}</span></div>
+      <button class="signout" id="signout" type="button">Sign out</button></div>`;
+    $("signout").onclick = async () => { await fetch("/auth/logout", {method: "POST"}); store.set("session_id", null); location.href = "/chat"; };
+  } else {
+    box.innerHTML = `<div class="who"><span class="ph"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="5.5" r="2.8"/><path d="M2.8 14c.6-2.7 2.7-4.2 5.2-4.2s4.6 1.5 5.2 4.2"/></svg></span>
+      <div><b>Guest</b><span>${u ? "Chats saved in this browser" : "Not signed in"}</span></div></div>
+      ${me.google_enabled ? `<a class="gbtn" href="/auth/login">${GOOGLE_G}Sign in with Google</a>` : ""}`;
+  }
 }
 
 /* ---------- wiring ---------- */
@@ -637,9 +774,11 @@ input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey &&
 input.addEventListener("input", () => { autosize(); updateCount(); });
 document.addEventListener("keydown", e => {
   if (e.key === "/" && document.activeElement !== input && !e.metaKey && !e.ctrlKey) { e.preventDefault(); input.focus(); }
-  if (e.key === "Escape") shell.classList.remove("show-ctx-sm");
+  if (e.key === "Escape") { shell.classList.remove("show-ctx-sm"); closeSide(); }
 });
-$("newBtn").onclick = () => { if (busy) busy.abort(); sessionId = null; store.set("session_id", null); turns = []; showEmpty(); renderContext(); setTitle(""); input.focus(); };
+$("newBtn").onclick = () => { openSession(null); input.focus(); };
+$("menuBtn").onclick = () => document.body.classList.toggle("side-open");
+$("scrim").onclick = closeSide;
 $("ctxBtn").onclick = () => {
   if (matchMedia("(max-width: 980px)").matches) { shell.classList.toggle("show-ctx-sm"); return; }
   const shown = !shell.classList.toggle("no-ctx");
@@ -647,10 +786,13 @@ $("ctxBtn").onclick = () => {
 };
 if (store.get("ctx_hidden")) { shell.classList.add("no-ctx"); $("ctxBtn").setAttribute("aria-pressed", "false"); }
 
-restore().then(() => {
-  const q = new URLSearchParams(location.search).get("q");
-  if (q) { history.replaceState(null, "", "/chat"); ask(q.slice(0, MAX)); }
-});
+const params = new URLSearchParams(location.search);
+if (params.get("auth") === "failed") toast("Google sign-in didn't complete. Please try again.");
+loadAccount(); loadSessions();
+// ?q= (from the landing page) starts a fresh chat; ?c= opens that chat; otherwise reopen the last one.
+const q = params.get("q");
+openSession(q ? null : params.get("c") || store.get("session_id"), {quiet: !params.get("c")})
+  .then(() => { if (q) ask(q.slice(0, MAX)); });
 </script>
 </body>
 </html>

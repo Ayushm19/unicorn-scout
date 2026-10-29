@@ -61,6 +61,27 @@ ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS stage_ms JSONB;
 ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS context JSONB;
 ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS clarifying_options TEXT[];
 
+-- v3: accounts and chat ownership. Guests get a row too (google_sub NULL) so their chats
+-- survive reloads; signing in moves a guest's chats to the Google account.
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    google_sub TEXT UNIQUE,
+    email TEXT,
+    name TEXT,
+    picture TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id),
+    title TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ          -- soft delete: the chat disappears, its logs stay for analytics
+);
+CREATE INDEX IF NOT EXISTS chat_sessions_user_idx ON chat_sessions (user_id, updated_at DESC) WHERE deleted_at IS NULL;
+
 -- General application logs (warnings, errors, lifecycle events).
 CREATE TABLE IF NOT EXISTS app_logs (
     id BIGSERIAL PRIMARY KEY,
@@ -231,6 +252,74 @@ def metrics_by_prompt_version() -> list[dict]:
                   count(*) FILTER (WHERE outcome = 'error') AS errors
            FROM chat_logs GROUP BY prompt_versions ORDER BY queries DESC"""
     ).fetchall()
+
+
+# --- users and chat sessions -------------------------------------------------
+
+_USER_COLS = "id::text AS id, email, name, picture, google_sub IS NOT NULL AS signed_in"
+
+
+def get_user(user_id: str) -> dict | None:
+    return conn().execute(f"UPDATE users SET last_seen_at = now() WHERE id = %s RETURNING {_USER_COLS}",
+                          (user_id,)).fetchone()
+
+
+def create_guest() -> dict:
+    return conn().execute(f"INSERT INTO users DEFAULT VALUES RETURNING {_USER_COLS}").fetchone()
+
+
+def upsert_google_user(sub: str, email: str, name: str | None, picture: str | None) -> dict:
+    return conn().execute(
+        f"""INSERT INTO users (google_sub, email, name, picture) VALUES (%s, %s, %s, %s)
+            ON CONFLICT (google_sub) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name,
+                picture = EXCLUDED.picture, last_seen_at = now()
+            RETURNING {_USER_COLS}""",
+        (sub, email, name, picture),
+    ).fetchone()
+
+
+def adopt_guest_chats(guest_id: str, user_id: str) -> int:
+    """Move a guest's chats to the account they just signed in with. Never moves another account's chats."""
+    return conn().execute(
+        """UPDATE chat_sessions SET user_id = %s
+           WHERE user_id = %s AND EXISTS (SELECT 1 FROM users WHERE id = %s AND google_sub IS NULL)""",
+        (user_id, guest_id, guest_id),
+    ).rowcount
+
+
+def claim_session(session_id: str, user_id: str, title: str) -> bool:
+    """Create the chat for this user, or touch it if they already own it. False means someone else owns it."""
+    row = conn().execute(
+        """INSERT INTO chat_sessions (id, user_id, title) VALUES (%s, %s, %s)
+           ON CONFLICT (id) DO UPDATE SET updated_at = now()
+               WHERE chat_sessions.user_id = EXCLUDED.user_id AND chat_sessions.deleted_at IS NULL
+           RETURNING id""",
+        (session_id, user_id, title),
+    ).fetchone()
+    return row is not None
+
+
+def owns_session(session_id: str, user_id: str) -> bool:
+    return conn().execute(
+        "SELECT 1 FROM chat_sessions WHERE id = %s AND user_id = %s AND deleted_at IS NULL", (session_id, user_id),
+    ).fetchone() is not None
+
+
+def list_sessions(user_id: str) -> list[dict]:
+    return conn().execute(
+        """SELECT s.id::text AS id, s.title, s.updated_at,
+                  (SELECT count(*) FROM chat_logs l WHERE l.session_id = s.id) AS turns
+           FROM chat_sessions s WHERE s.user_id = %s AND s.deleted_at IS NULL
+           ORDER BY s.updated_at DESC LIMIT 200""",
+        (user_id,),
+    ).fetchall()
+
+
+def delete_session(session_id: str, user_id: str) -> bool:
+    return conn().execute(
+        "UPDATE chat_sessions SET deleted_at = now() WHERE id = %s AND user_id = %s AND deleted_at IS NULL",
+        (session_id, user_id),
+    ).rowcount == 1
 
 
 # --- app logs ----------------------------------------------------------------
