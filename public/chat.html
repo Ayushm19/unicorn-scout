@@ -94,21 +94,48 @@
   .avatar { width: 22px; height: 22px; border-radius: 6px; background: var(--ink); display: grid; place-items: center; flex: none; }
 
   /* process (live pipeline) */
-  .process { border: 1px solid var(--line); border-radius: 10px; background: var(--card); font-size: 13px; }
-  .process summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 9px; padding: 8px 12px; color: var(--ink-2); user-select: none; }
-  .process summary::-webkit-details-marker { display: none; }
-  .process summary .chev { margin-left: auto; transition: transform .2s; color: var(--ink-3); }
-  .process[open] summary .chev { transform: rotate(90deg); }
-  .process ol { list-style: none; margin: 0; padding: 2px 12px 10px; display: grid; gap: 7px; border-top: 1px solid var(--line); padding-top: 10px; }
-  .step { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 10px; align-items: center; color: var(--ink-2); animation: rise .2s ease; }
-  .step .d { color: var(--ink); font-weight: 500; }
-  .step .ms { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
-  .tick { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--line-2); position: relative; flex: none; }
-  .done > .tick { border-color: var(--ok); background: var(--ok); }
-  .done > .tick::after { content: ""; position: absolute; left: 3.6px; top: 1.2px; width: 3px; height: 6px; border: solid #fff; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
-  .run > .tick { border-color: var(--accent); border-right-color: transparent; animation: spin .7s linear infinite; }
-  .fail > .tick { border-color: var(--bad); background: var(--bad); }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  /* pipeline card, kept quiet: one line per step on a hairline graph, one pill, faint meta on the right */
+  .pc { border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+  .pc-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 11px 16px 9px; border: 0; background: transparent;
+             text-align: left; font-size: 13px; color: var(--ink); }
+  .pc-head .title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; letter-spacing: -.005em; }
+  .pc-head .title .sub { color: var(--ink-3); font-weight: 400; }
+  .pc-state { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ok); white-space: nowrap; }
+  .pc-state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pc-state.warn { color: var(--warn); } .pc-state.bad { color: var(--bad); } .pc-state.muted { color: var(--ink-3); }
+  .pc-state.run { color: var(--ink-3); font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .pc-state.run::before { background: var(--accent); animation: tl-ping 1.1s ease-out infinite; }
+  .pc-chev { color: var(--ink-3); transition: transform .25s ease; flex: none; opacity: .7; }
+  .pc-head:hover .pc-chev { opacity: 1; }
+  .pc.open .pc-chev { transform: rotate(180deg); }
+  .pc-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .28s ease; }
+  .pc.open .pc-body { grid-template-rows: 1fr; }
+  .pc-body > div { overflow: hidden; min-height: 0; }
+  .pl { list-style: none; margin: 0; padding: 2px 16px 8px; position: relative; }
+  .pl::before { content: ""; position: absolute; left: 22.5px; top: 14px; bottom: 20px; width: 1px; background: var(--line-2); }
+  .pl-step { position: relative; display: flex; align-items: center; gap: 8px; height: 25px; font-size: 12.5px; color: var(--ink-2); animation: rise .2s ease; }
+  .pl-dot { width: 14px; flex: none; display: grid; place-items: center; position: relative; z-index: 1; }
+  .pl-dot::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #3d6fd8; box-shadow: 0 0 0 3px var(--card); }
+  .pl-step.run .pl-dot::before { width: 5px; height: 5px; background: var(--card); border: 1.5px solid var(--accent); animation: tl-ping 1.1s ease-out infinite; }
+  .pl-step.last .pl-dot::before { width: 8px; height: 8px; background: var(--ok); }
+  .pl-step.bad .pl-dot::before { background: var(--bad); }
+  .pl-label { white-space: nowrap; }
+  .pl-step.run .pl-label { color: var(--ink-3); }
+  .pl-pill { font-family: var(--mono); font-size: 10.5px; line-height: 17px; padding: 0 6px; border-radius: 4px; white-space: nowrap;
+             color: #3d6fd8; background: color-mix(in srgb, #3d6fd8 9%, transparent); }
+  .pl-pill.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+  .pl-pill.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); }
+  .pl-meta { margin-left: auto; padding-left: 12px; min-width: 0; font-family: var(--mono); font-size: 11px; color: var(--ink-3); opacity: .85;
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  .pl-meta b { display: inline-block; min-width: 46px; text-align: right; font-weight: 400; color: var(--ink-2); }
+  .pc-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 8px 16px 10px; border-top: 1px solid var(--line);
+             font-size: 11.5px; color: var(--ink-3); }
+  .pc-foot .ck { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .pc-foot .ck svg { width: 11px; height: 11px; color: var(--ok); flex: none; }
+  .pc-foot .ck b { color: var(--ink-2); font-weight: 500; }
+  .pc-foot .right { margin-left: auto; display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 10.5px; }
+  .pc-foot a { color: var(--ink-3); text-decoration: none; } .pc-foot a:hover { color: var(--accent); }
+  @media (max-width: 600px) { .pl-meta .pm { display: none; } .pc-foot .right { margin-left: 0; } }
   .shimmer { background: linear-gradient(90deg, var(--ink-3) 0%, var(--ink) 50%, var(--ink-3) 100%); background-size: 200% 100%;
              -webkit-background-clip: text; background-clip: text; color: transparent; animation: sh 1.6s linear infinite; }
   @keyframes sh { to { background-position: -200% 0; } }
@@ -455,24 +482,43 @@ function followUps(r) {
 }
 
 /* ---------- a bot turn ---------- */
+const CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8.5 3.2 3L13 4.5"/></svg>';
+const CHEVRON = '<svg class="pc-chev" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m4 6 4 4 4-4"/></svg>';
+const STATE = {answered: "", clarification: "warn", blocked: "bad", rejected: "bad", error: "bad", off_topic: "muted", greeting: "muted"};
+let lastTurn = null;
+
 class BotTurn {
   constructor() {
+    lastTurn?.setOpen(false);  // only the newest turn keeps its steps open
+    lastTurn = this;
     this.root = el("div", "b");
     this.root.innerHTML = `<div class="b-head"><span class="avatar"><svg width="12" height="12" viewBox="0 0 24 24"><path d="M5 21 20 3l-6 18Z" fill="var(--paper)"/><circle cx="20" cy="3" r="2.6" fill="var(--accent)"/></svg></span>Scout</div>`;
-    this.process = el("details", "process"); this.process.open = true;
-    this.process.innerHTML = `<summary><span class="run"><span class="tick"></span></span><span class="lbl shimmer">Starting…</span><span class="chev">›</span></summary><ol></ol>`;
+    this.card = el("div", "pc open");
+    this.card.innerHTML = `<button class="pc-head" type="button" aria-expanded="true">
+        <span class="title"><span class="lbl shimmer">Starting…</span></span><span class="pc-state run">0.0 s</span>${CHEVRON}</button>
+      <div class="pc-body"><div><ol class="pl"></ol></div></div>`;
+    this.head = this.card.querySelector(".pc-head");
+    this.head.onclick = () => this.setOpen(!this.card.classList.contains("open"));
+    this.list = this.card.querySelector("ol");
     this.steps = {}; this.slot = el("div"); this.text = el("div", "text"); this.extra = el("div");
     this.buffer = ""; this.t0 = performance.now();
-    this.root.append(this.process, this.slot, this.text, this.extra);
+    this.clock = setInterval(() => { this.card.querySelector(".pc-state.run").textContent = ((performance.now() - this.t0) / 1000).toFixed(1) + " s"; }, 100);
+    this.root.append(this.card, this.slot, this.text, this.extra);
     log.append(this.root); scrollDown(true);
   }
+  setOpen(open) {
+    this.card.classList.toggle("open", open);
+    this.head.setAttribute("aria-expanded", String(open));
+  }
   stage(d) {
-    const ol = this.process.querySelector("ol");
-    let s = this.steps[d.id];
-    if (!s) { s = this.steps[d.id] = el("li", "step run", `<span class="tick"></span><span class="l"></span><span class="ms"></span>`); ol.append(s); }
-    s.querySelector(".l").innerHTML = esc(d.status === "done" ? (STAGES[d.id] || d.label) : d.label) + (d.status === "done" ? detail(d) : "");
-    if (d.status === "done") { s.className = "step done"; s.querySelector(".ms").textContent = secs(d.ms); }
-    else this.process.querySelector(".lbl").textContent = d.label + "…";
+    if (d.status !== "done") {
+      this.card.querySelector(".lbl").textContent = d.label + "…";
+      if (!this.steps[d.id]) this.list.append(this.steps[d.id] = stepEl(STAGES[d.id] || d.label, "run"));
+    } else {
+      const s = stepEl(STAGES[d.id] || d.label, "done", d, d.ms);
+      this.steps[d.id] ? this.steps[d.id].replaceWith(s) : this.list.append(s);
+      this.steps[d.id] = s;
+    }
     scrollDown();
   }
   companies(d) {
@@ -491,18 +537,23 @@ class BotTurn {
     scrollDown();
   }
   finish(r, {restored = false} = {}) {
-    const n = Object.keys(r.stage_ms || {}).length;
-    const summary = this.process.querySelector("summary");
-    const failed = r.outcome === "error";
-    summary.innerHTML = `<span class="${failed ? "fail" : "done"}"><span class="tick"></span></span>
-      <span>${failed ? "Failed" : "Worked"} for <b class="num">${secs(r.latency_ms)}</b> · ${n} step${n === 1 ? "" : "s"}${r.intent && INTENT[r.intent] ? ` · ${INTENT[r.intent]}` : ""}</span><span class="chev">›</span>`;
-    if (restored) {  // rebuild steps from stored timings
-      const ol = this.process.querySelector("ol");
-      for (const [k, ms] of ordered(r.stage_ms))
-        ol.append(el("li", "step done", `<span class="tick"></span><span class="l">${esc(STAGES[k] || k)}</span><span class="ms">${secs(ms)}</span>`));
+    clearInterval(this.clock);
+    const stages = ordered(r.stage_ms), n = stages.length;
+    this.head.innerHTML = `<span class="title">${r.outcome === "error" ? "Failed after" : "Worked for"} ${secs(r.latency_ms)}
+        <span class="sub">· ${n} step${n === 1 ? "" : "s"}${r.intent && INTENT[r.intent] ? ` · ${INTENT[r.intent]}` : ""}</span></span>
+      <span class="pc-state ${STATE[r.outcome] ?? "muted"}">${esc((r.outcome || "").replace("_", " "))}</span>${CHEVRON}`;
+    if (restored) {  // rebuild the steps from the stored timings and stage details
+      for (const [k, ms] of stages) this.list.append(this.steps[k] = stepEl(STAGES[k] || k, "done", {id: k, ...(r.stage_detail?.[k] || {})}, ms));
       if (r.companies?.length) this.companies({intent: r.intent, filters: r.filters, companies: r.companies});
     }
-    this.process.open = false;
+    const last = this.list.lastElementChild;
+    if (last) last.classList.add(["blocked", "rejected", "error"].includes(r.outcome) ? "bad" : "last");
+    const checks = checkItems(r), right = [];
+    if (r.model) right.push(`<span>${esc(r.model.split("/").pop())}${r.used_fallback ? " · fallback" : ""}</span>`);
+    if (r.trace_url) right.push(`<a href="${esc(r.trace_url)}" target="_blank" rel="noopener">trace ↗</a>`);
+    if (checks.length || right.length) this.card.append(el("div", "pc-foot",
+      checks.map(c => `<span class="ck">${CHECK}${c}</span>`).join("") + (right.length ? `<span class="right">${right.join("")}</span>` : "")));
+    if (restored) this.setOpen(false);
     const notice = ["blocked", "rejected", "error"].includes(r.outcome) ? "notice bad" : r.outcome === "off_topic" ? "notice" : "";
     this.text.className = "text " + notice;
     this.text.innerHTML = md(r.reply || "");
@@ -520,14 +571,10 @@ class BotTurn {
       if (restored) opts.querySelectorAll("button").forEach(x => x.disabled = true);
       this.extra.append(opts);
     }
-    const meta = el("div", "meta");
-    const tokens = (r.prompt_tokens || 0) + (r.completion_tokens || 0);
-    meta.innerHTML = `<span class="badge ${esc(r.outcome)}">${esc((r.outcome || "").replace("_", " "))}</span>
-      <span class="num">${secs(r.latency_ms)}</span>${tokens ? `<span class="num">${fmt(tokens)} tokens</span>` : ""}
-      ${r.model ? `<span>${esc(r.model.split("/").pop())}${r.used_fallback ? " · fallback" : ""}</span>` : ""}
-      ${r.trace_url ? `<a href="${esc(r.trace_url)}" target="_blank" rel="noopener">trace ↗</a>` : ""}`;
-    if (r.outcome === "error" && r.retry) { const b = el("button", "retry"); b.textContent = "Try again"; b.onclick = () => ask(r.retry); meta.append(b); }
-    this.extra.append(meta);
+    if (r.outcome === "error" && r.retry) {
+      const b = el("button", "retry"); b.textContent = "Try again"; b.onclick = () => ask(r.retry);
+      this.extra.append(b);
+    }
     const fu = followUps(r);
     if (fu.length && !restored) {
       const box = el("div", "followups");
@@ -538,20 +585,43 @@ class BotTurn {
   }
 }
 
-function detail(d) {
-  const x = [];
-  if (d.id === "sanitize") x.push(d.ok ? "clean" : d.reason);
-  if (d.id === "guard") x.push(d.score == null ? "classifier unavailable" : `injection score ${Number(d.score).toFixed(4)}`);
-  if (d.id === "memory") x.push(`${d.turns} turn${d.turns === 1 ? "" : "s"}`, d.working_set ? `${d.working_set} in working set` : "");
-  if (d.id === "route") {
-    x.push(INTENT[d.intent] || d.intent, ...Object.values(d.filters || {}).map(String));
-    if (d.follow_up) x.push("narrowing previous answer");
-    if (d.companies?.length && d.companies.length <= 3) x.push(d.companies.join(", "));
+// One line per step: dot on the graph, label, at most one pill, faint metadata and timing on the right.
+function stepEl(label, state, d = null, ms = null) {
+  const {pill, cls, meta} = d ? summarize(d) : {};
+  const metaText = (meta || []).map(m => `<span class="pm">${esc(m)} · </span>`).join("") + (ms == null ? "" : `<b>${secs(ms)}</b>`);
+  return el("li", "pl-step " + state, `<span class="pl-dot"></span><span class="pl-label">${esc(label)}</span>
+    ${pill ? `<span class="pl-pill ${cls || ""}">${esc(pill)}</span>` : ""}<span class="pl-meta">${metaText}</span>`);
+}
+function summarize(d) {
+  const count = (v, one, many) => `${fmt(v)} ${v === 1 ? one : many}`;
+  switch (d.id) {
+    case "sanitize": return d.ok === false ? {pill: d.reason, cls: "bad"} : {pill: "clean", cls: "ok"};
+    case "guard":
+      if (d.score == null) return {pill: "skipped", meta: ["classifier unavailable"]};
+      return {pill: d.score >= .8 ? "injection" : "safe", cls: d.score >= .8 ? "bad" : "ok", meta: [`score ${Number(d.score).toFixed(4)}`]};
+    case "memory":
+      return {pill: d.turns ? count(d.turns, "turn", "turns") : "new chat", meta: d.working_set ? [`${d.working_set} in memory`] : []};
+    case "route": {
+      const f = Object.entries(d.filters || {}).map(([k, v]) => k === "founded_from" ? `≥ ${v}` : k === "founded_to" ? `≤ ${v}` : String(v));
+      const names = d.companies?.length && d.companies.length <= 2 ? d.companies : [];
+      return {pill: INTENT[d.intent] || d.intent, meta: [...f, ...names, ...(d.follow_up ? ["follow-up"] : [])]};
+    }
+    case "retrieve": return {pill: count(d.count, "match", "matches"), meta: [d.method + (d.scoped ? " · scoped" : "")]};
+    case "answer": return {pill: `${fmt(d.tokens)} tokens`, meta: d.provider ? [d.provider] : []};
   }
-  if (d.id === "retrieve") x.push(`${d.count} match${d.count === 1 ? "" : "es"}`, d.method, d.scoped ? "scoped" : "");
-  if (d.id === "answer") x.push(`${d.tokens} tokens`, d.provider);
-  const s = x.filter(Boolean).join(" · ");
-  return s ? ` · <span class="d">${esc(s)}</span>` : "";
+  return {};
+}
+// Checks under the steps, like CI checks on a pull request.
+function checkItems(r) {
+  if (["blocked", "rejected", "error"].includes(r.outcome)) return [];
+  const sd = r.stage_detail || {}, out = [];
+  if (sd.guard) out.push(sd.guard.score == null ? "Guard <b>skipped</b>" : "Guard <b>passed</b>");
+  if (sd.retrieve) out.push(`Search <b>${esc(fmt(sd.retrieve.count))}</b>`);
+  const tok = (r.prompt_tokens || 0) + (r.completion_tokens || 0);
+  if (tok) out.push(`Tokens <b>${esc(fmt(tok))}</b>`);
+  const pv = ordered(r.prompt_versions).reverse().map(([k, v]) => `${k} ${v === "fallback" ? "local" : "v" + v}`).join(" · ");
+  if (pv) out.push(`Prompts <b>${esc(pv)}</b>`);
+  return out;
 }
 
 /* ---------- context panel ---------- */

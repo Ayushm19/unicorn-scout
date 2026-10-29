@@ -60,6 +60,7 @@ ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS completion_tokens INT;
 ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS stage_ms JSONB;
 ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS context JSONB;
 ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS clarifying_options TEXT[];
+ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS stage_detail JSONB;   -- what each stage found, for the UI timeline
 
 -- v3: accounts and chat ownership. Guests get a row too (google_sub NULL) so their chats
 -- survive reloads; signing in moves a guest's chats to the Google account.
@@ -137,13 +138,15 @@ def find_companies_by_name(names: list[str]) -> list[dict]:
     if not names:
         return []
     patterns = [n.strip() for n in names if n.strip()]
-    # Exact (case-insensitive) match, plus substring match only for 4+ char names so "Ola" != "Ola Electric".
-    return conn().execute(
-        f"""SELECT {_PUBLIC_COLS} FROM companies
-            WHERE lower(name) = ANY(%(exact)s) OR name ILIKE ANY(%(like)s)
-            ORDER BY (lower(name) = ANY(%(exact)s)) DESC, rank DESC LIMIT 5""",
-        {"exact": [p.lower() for p in patterns], "like": [f"%{p}%" for p in patterns if len(p) >= 4]},
-    ).fetchall()
+    rows = conn().execute(f"SELECT {_PUBLIC_COLS} FROM companies WHERE lower(name) = ANY(%s) ORDER BY rank DESC",
+                          ([p.lower() for p in patterns],)).fetchall()
+    # Substring fallback only for names with no exact hit (and 4+ chars), so "CRED" never drags in "InCred".
+    found = {r["name"].lower() for r in rows}
+    missing = [f"%{p}%" for p in patterns if p.lower() not in found and len(p) >= 4]
+    if missing:
+        rows += conn().execute(f"SELECT {_PUBLIC_COLS} FROM companies WHERE name ILIKE ANY(%s) ORDER BY rank DESC",
+                               (missing,)).fetchall()
+    return rows[:5]
 
 
 def search_companies(filters: dict, query_vec: list[float] | None, scope_ids: list[int] | None,
@@ -190,7 +193,7 @@ def company_names() -> str:
 
 # --- chat logs / history -----------------------------------------------------
 
-_JSON_COLS = ("filters", "prompt_versions", "stage_ms", "context")
+_JSON_COLS = ("filters", "prompt_versions", "stage_ms", "stage_detail", "context")
 
 
 def insert_chat_log(row: dict) -> None:
@@ -214,7 +217,7 @@ def recent_turns(session_id: str, n: int) -> list[dict]:
 def session_history(session_id: str) -> list[dict]:
     return conn().execute(
         """SELECT user_query, response, outcome, intent, filters, retrieved_ids, prompt_versions, provider, model,
-                  used_fallback, latency_ms, prompt_tokens, completion_tokens, stage_ms, context,
+                  used_fallback, latency_ms, prompt_tokens, completion_tokens, stage_ms, stage_detail, context,
                   clarifying_options, trace_id, created_at
            FROM chat_logs WHERE session_id = %s ORDER BY created_at""",
         (session_id,),

@@ -122,13 +122,15 @@ def _context(res: llm.LLMResult, parts: dict[str, str]) -> dict:
 
 
 @contextmanager
-def _stage(emit: Emit, timings: dict, stage_id: str, label: str):
-    """Time a pipeline stage and report start/done to the UI; `detail` dict is sent with 'done'."""
+def _stage(emit: Emit, rec: dict, stage_id: str, label: str):
+    """Time a pipeline stage and report start/done to the UI. The `detail` dict filled inside the block is
+    sent with 'done' and saved with the turn, so a reloaded chat shows the same timeline."""
     emit("stage", {"id": stage_id, "status": "start", "label": label})
     t0, detail = time.perf_counter(), {}
     yield detail
-    timings[stage_id] = int((time.perf_counter() - t0) * 1000)
-    emit("stage", {"id": stage_id, "status": "done", "label": label, "ms": timings[stage_id], **detail})
+    rec["stage_ms"][stage_id] = int((time.perf_counter() - t0) * 1000)
+    rec["stage_detail"][stage_id] = detail
+    emit("stage", {"id": stage_id, "status": "done", "label": label, "ms": rec["stage_ms"][stage_id], **detail})
 
 
 def _retrieve(route: Route, question: str, prev_ids: list[int], filters: dict) -> tuple[list[dict], str]:
@@ -152,9 +154,9 @@ def _retrieve(route: Route, question: str, prev_ids: list[int], filters: dict) -
 
 
 def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
-    lf, timings = get_client(), rec["stage_ms"]
+    lf = get_client()
 
-    with _stage(emit, timings, "sanitize", "Checking your message") as d:
+    with _stage(emit, rec, "sanitize", "Checking your message") as d:
         s = sanitize(raw)
         rec["sanitized_query"] = s.text
         d.update(ok=s.ok, reason=s.reason)
@@ -162,7 +164,7 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
         rec.update(outcome="blocked" if s.reason == "injection" else "rejected", intent=s.reason)
         return {"reply": REJECTION_MESSAGES[s.reason]}
 
-    with _stage(emit, timings, "guard", "Screening for prompt injection") as d, \
+    with _stage(emit, rec, "guard", "Screening for prompt injection") as d, \
             lf.start_as_current_observation(name="prompt-guard", as_type="guardrail", input=s.text) as g:
         score = llm.prompt_guard_score(s.text)
         g.update(output={"score": score})
@@ -171,7 +173,7 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
         rec.update(outcome="blocked", intent="injection")
         return {"reply": REJECTION_MESSAGES["injection"]}
 
-    with _stage(emit, timings, "memory", "Recalling the conversation") as d:
+    with _stage(emit, rec, "memory", "Recalling the conversation") as d:
         turns = db.recent_turns(session_id, config.HISTORY_TURNS)
         # Working set for "these/those": the latest result list within the remembered turns.
         prev_ids = next((t["retrieved_ids"] for t in reversed(turns) if t["retrieved_ids"]), [])
@@ -179,7 +181,7 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
         history = _history_text(turns)
         d.update(turns=len(turns), working_set=len(prev_ids))
 
-    with _stage(emit, timings, "route", "Understanding the question") as d:
+    with _stage(emit, rec, "route", "Understanding the question") as d:
         router_prompt = prompts.get_prompt("router")
         rec["prompt_versions"] = {"router": prompts.version_of(router_prompt)}
         names = db.company_names()
@@ -214,7 +216,7 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
         rec.update(outcome="clarification", clarifying_options=(route.clarifying_options or [])[:4])
         return {"reply": route.clarifying_question or DEFAULT_CLARIFY}
 
-    with _stage(emit, timings, "retrieve", "Searching 118 companies") as d:
+    with _stage(emit, rec, "retrieve", "Searching 118 companies") as d:
         rows, method = _retrieve(route, s.text, prev_ids, filters)
         rec["retrieved_ids"] = [r["id"] for r in rows]
         d.update(count=len(rows), method=method, scoped=bool(route.use_previous_results and prev_ids))
@@ -225,7 +227,7 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
         return {"reply": "I couldn't find any companies in the dataset matching that. "
                          "Try a broader sector or a different city.", "companies": []}
 
-    with _stage(emit, timings, "answer", "Writing the answer") as d:
+    with _stage(emit, rec, "answer", "Writing the answer") as d:
         answer_prompt = prompts.get_prompt("answer")
         rec["prompt_versions"]["answer"] = prompts.version_of(answer_prompt)
         records = _format_records(rows)
@@ -248,7 +250,7 @@ def handle_turn(session_id: str, message: object, emit: Emit | None = None, user
     t0 = time.perf_counter()
     lf = get_client()
     rec = {"session_id": session_id, "user_query": str(message)[:2000], "outcome": "error", "retrieved_ids": [],
-           "used_fallback": False, "prompt_tokens": 0, "completion_tokens": 0, "stage_ms": {}}
+           "used_fallback": False, "prompt_tokens": 0, "completion_tokens": 0, "stage_ms": {}, "stage_detail": {}}
     with lf.start_as_current_observation(name="chat-turn", as_type="chain", input=rec["user_query"]) as root, \
             propagate_attributes(session_id=session_id, user_id=user_id, trace_name="chat-turn"):
         try:
@@ -274,6 +276,6 @@ def handle_turn(session_id: str, message: object, emit: Emit | None = None, user
                                           "used_fallback", "trace_id")}})
     return {"reply": result["reply"], "companies": result.get("companies", []), "session_id": session_id,
             **{k: rec.get(k) for k in ("outcome", "intent", "filters", "clarifying_options", "latency_ms",
-                                       "stage_ms", "prompt_tokens", "completion_tokens", "context",
+                                       "stage_ms", "stage_detail", "prompt_tokens", "completion_tokens", "context",
                                        "prompt_versions", "provider", "model", "used_fallback", "trace_id")},
             "trace_url": lf.get_trace_url(trace_id=rec["trace_id"]) if rec.get("trace_id") else None}
