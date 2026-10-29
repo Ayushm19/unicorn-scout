@@ -47,6 +47,14 @@
            border-radius: 8px; font-size: 13px; z-index: 60; box-shadow: var(--shadow); animation: rise .2s ease; }
   .icon-btn.menu-btn { display: none; }
   .scrim { display: none; }
+  .side-close { border: 0; background: transparent; color: var(--ink-3); width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center; }
+  .side-close:hover { color: var(--ink); background: var(--line); }
+  .side-close svg, .menu-btn svg { width: 16px; height: 16px; }
+  @media (min-width: 981px) {  /* desktop: the sidebar collapses away and the header button brings it back */
+    body.side-collapsed { grid-template-columns: minmax(0, 1fr); }
+    body.side-collapsed .side { display: none; }
+    body.side-collapsed .icon-btn.menu-btn { display: inline-flex; }
+  }
 
   /* top bar */
   .top { display: flex; align-items: center; gap: 14px; height: 54px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--paper); }
@@ -248,6 +256,9 @@
       <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="var(--ink)"/><path d="M6 19 18 5l-4.5 14Z" fill="var(--paper)"/><path d="M9.6 16.2l4.4.9M11.6 13.4l3.4.7" stroke="var(--ink)" stroke-width="1.2"/><circle cx="18" cy="5" r="2" fill="var(--accent)"/></svg>
       <span>unicorn <span class="slash">/</span> scout</span>
     </a>
+    <button class="side-close" id="sideClose" type="button" aria-label="Close sidebar" title="Close sidebar (Ctrl+B)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M6 2.5v11M11 6.2 9.2 8l1.8 1.8"/></svg>
+    </button>
   </div>
   <button class="new-chat" id="newBtn" type="button">
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v10M3 8h10"/></svg>New chat
@@ -259,8 +270,8 @@
 
 <div class="app">
 <header class="top">
-  <button class="icon-btn menu-btn" id="menuBtn" type="button" aria-label="Show chats" aria-controls="side">
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg>
+  <button class="icon-btn menu-btn" id="menuBtn" type="button" aria-label="Open sidebar" aria-controls="side" title="Open sidebar (Ctrl+B)">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M6 2.5v11M9.2 6.2 11 8l-1.8 1.8"/></svg>
   </button>
   <div class="title" id="title"></div>
   <button class="theme-btn" type="button" onclick="toggleTheme()" aria-label="Toggle dark mode">
@@ -777,8 +788,18 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") { shell.classList.remove("show-ctx-sm"); closeSide(); }
 });
 $("newBtn").onclick = () => { openSession(null); input.focus(); };
-$("menuBtn").onclick = () => document.body.classList.toggle("side-open");
+// Sidebar: a drawer on small screens, collapsible (and remembered) on desktop.
+const isSmall = () => matchMedia("(max-width: 980px)").matches;
+function setSidebar(open) {
+  if (isSmall()) { document.body.classList.toggle("side-open", open); return; }
+  document.body.classList.toggle("side-collapsed", !open); store.set("side_collapsed", open ? null : "1");
+}
+const sidebarOpen = () => isSmall() ? document.body.classList.contains("side-open") : !document.body.classList.contains("side-collapsed");
+$("menuBtn").onclick = () => setSidebar(true);
+$("sideClose").onclick = () => setSidebar(false);
 $("scrim").onclick = closeSide;
+document.addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") { e.preventDefault(); setSidebar(!sidebarOpen()); } });
+if (store.get("side_collapsed")) document.body.classList.add("side-collapsed");
 $("ctxBtn").onclick = () => {
   if (matchMedia("(max-width: 980px)").matches) { shell.classList.toggle("show-ctx-sm"); return; }
   const shown = !shell.classList.toggle("no-ctx");
