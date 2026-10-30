@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy · Unicorn Scout</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%2314161a'/%3E%3Cpath d='M6 19 18 5l-4.5 14Z' fill='%23f6f5f0'/%3E%3Ccircle cx='18' cy='5' r='2' fill='%23e2553b'/%3E%3C/svg%3E">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/base.css">
+<style>
+  main { max-width: 680px; margin: 0 auto; padding: 48px 24px 80px; }
+  h1 { font-family: var(--display); font-weight: 800; font-size: clamp(32px, 6vw, 44px); letter-spacing: -.04em; margin: 28px 0 6px; }
+  h2 { font-family: var(--display); font-size: 19px; letter-spacing: -.02em; margin: 30px 0 8px; }
+  p, li { color: var(--ink-2); line-height: 1.7; }
+  ul { padding-left: 20px; }
+  .updated { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <a class="brand" href="/" aria-label="Unicorn Scout home" style="color:var(--ink)">
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="var(--ink)"/><path d="M6 19 18 5l-4.5 14Z" fill="var(--paper)"/><path d="M9.6 16.2l4.4.9M11.6 13.4l3.4.7" stroke="var(--ink)" stroke-width="1.2"/><circle cx="18" cy="5" r="2" fill="var(--accent)"/></svg>
+    <span>unicorn <span class="slash">/</span> scout</span>
+  </a>
+  <h1>Privacy policy</h1>
+  <p class="updated">Last updated 30 October 2026</p>
+
+  <p>Unicorn Scout is a personal project: a chatbot that answers questions about India's unicorn startups using a public
+    Kaggle dataset. This page explains exactly what it stores and why.</p>
+
+  <h2>What we collect</h2>
+  <ul>
+    <li><b>Your messages and the bot's answers</b>, with timestamps, so your chats appear in the sidebar and the bot can
+      follow up on earlier questions.</li>
+    <li><b>If you sign in with Google:</b> your name, email address, profile picture and Google account id. We ask for
+      nothing else: no contacts, no Drive, no Gmail.</li>
+    <li><b>If you don't sign in:</b> a random guest id in a cookie, so your chats survive a page reload.</li>
+    <li><b>Technical data about each answer</b>: which steps ran, how long they took, how many tokens were used and
+      whether an error occurred. This is used to monitor quality and fix problems.</li>
+  </ul>
+
+  <h2>Where it goes</h2>
+  <ul>
+    <li>Chats, accounts and logs are stored in a Postgres database hosted by Neon.</li>
+    <li>To answer, your message is sent to the AI model providers Groq and Google (Gemini). On Google's free tier,
+      prompts may be used by Google to improve its products, so please don't type personal or confidential information.</li>
+    <li>Answer traces (your message, the answer and timing) are recorded in Langfuse for debugging. Traces carry an
+      anonymous user id, not your name or email.</li>
+    <li>The site is hosted on Vercel.</li>
+  </ul>
+  <p>We don't sell your data, show ads, or share it with anyone else.</p>
+
+  <h2>Cookies</h2>
+  <p>One signed, HttpOnly cookie (<code>scout_session</code>) keeps you signed in or remembers your guest chats for up to
+    30 days. Your theme preference is kept in your browser's local storage. There are no tracking or advertising cookies.</p>
+
+  <h2>Deleting your data</h2>
+  <p>Deleting a chat removes it from your sidebar. To have your account and all your chats permanently erased, email
+    <a href="mailto:knandan400@gmail.com">knandan400@gmail.com</a> and it will be done within 30 days. Signing out clears
+    the cookie from your browser.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about this policy: <a href="mailto:knandan400@gmail.com">knandan400@gmail.com</a>.</p>
+  <p style="margin-top:32px"><a href="/terms">Terms of service</a> · <a href="/">Home</a></p>
+</main>
+</body>
+</html>
