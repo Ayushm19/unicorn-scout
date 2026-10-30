@@ -17,8 +17,17 @@ def test_load_and_clean_dataset():
     # Shifted columns: sector names must not leak into investors.
     assert "Alternative Lending" not in by_name["Perfios"]["investors"]
     assert all(c["city"] == c["city"].strip() for c in companies)
-    # Shifted columns: employee counts must not pose as money.
-    assert by_name["Open"]["total_funding"] is None and by_name["Policybazaar"]["valuation"] is None
+    # Shifted columns: employee counts must not pose as money, and move back to employee_count.
+    assert by_name["Policybazaar"]["valuation"] is None
+    assert by_name["Policybazaar"]["employee_count"].startswith("22,635")
+    # Shifted money: a valuation sitting in annual_revenue (dated on its funding round) and funding in valuation.
+    games = by_name["Games24x7"]
+    assert games["valuation"].startswith("₹18,800Cr") and games["total_funding"] == "$99.1M"
+    assert games["annual_revenue"] is None
+    assert by_name["Open"]["valuation"].startswith("₹7,300Cr") and by_name["Open"]["total_funding"] == "$186M"
+    assert by_name["Nykaa"]["valuation"] is None and by_name["Nykaa"]["total_funding"] == "$103M"
+    assert by_name["Nykaa"]["annual_revenue"].startswith("₹6,420Cr")  # real revenue, dated Mar 31, stays
+    assert by_name["FirstCry"]["total_funding"] == "$513M" and by_name["FirstCry"]["annual_revenue"] is None
     assert by_name["LivSpace"]["valuation"].startswith("1.33B SGD")
     assert by_name["Razorpay"]["total_funding"].startswith("$")
 
@@ -62,3 +71,17 @@ def test_top_5_by_valuation_and_outside_india():
     abroad = [c["name"] for c in companies if c["country"] != "India"]
     assert len(abroad) == 16 and {"Hasura", "Chargebee"} <= set(abroad)
     assert normalize_filters(Filters(exclude_city=["Bangalore", "Gurgaon"]))["exclude_city"] == ["Bengaluru", "Gurugram"]
+
+
+def test_count_sentence_states_scope_and_count():
+    from app.chatbot import _count_sentence
+    assert _count_sentence(57, 0, scoped=False, widened=False) == "57 of the 118 unicorns match."
+    assert _count_sentence(8, 14, scoped=True, widened=False) == "Of the 14 companies in my previous answer, 8 match."
+    assert _count_sentence(1, 1, scoped=True, widened=False) == "Of the company in my previous answer, 1 matches."
+    assert "searched all 118: 16 match" in _count_sentence(16, 5, scoped=False, widened=True)
+    from app.chatbot import _ranked_sentence
+    companies = sort_and_limit(load_companies(CSV), {"sort_by": "valuation", "limit": 3})
+    assert _ranked_sentence(companies, "valuation", limited=True) == (
+        "Top 3 by valuation: **Flipkart** (≈ $36.0B), **Blinkit** (≈ $13.0B), **PhonePe** (≈ $12.2B).")
+    oldest = sort_and_limit(load_companies(CSV), {"sort_by": "oldest", "limit": 2})
+    assert _ranked_sentence(oldest, "oldest", limited=True).startswith("2 oldest: **Five Star Business Finance** (1984)")

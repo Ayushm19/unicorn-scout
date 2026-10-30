@@ -79,8 +79,37 @@ def normalize_city(city: str | None) -> str | None:
     return CITY_ALIASES.get(city.strip().lower(), city.strip().title())
 
 
+_HEADCOUNT = re.compile(r"^\d[\d,]* as on ")  # "952 as on Feb 28, 2025"
+
+
+def _unshift_money(rev: str | None, val: str | None, fund: str | None) -> tuple:
+    """Undo the scrape's column shift in the money fields. Returns (revenue, valuation, funding).
+
+    When a company has no revenue figure, its valuation lands in annual_revenue and its funding in valuation.
+    Tell-tales: a "revenue" dated on a funding-round day (real revenue is dated at a year end, Mar 31 or Dec 31)
+    that is at least $500M, e.g. Rebel Foods "₹13,800Cr as on Apr 21, 2025" next to a round on Apr 22, 2025.
+    And an undated "valuation" with no funding figure is the funding: valuations here carry an "as on" date and
+    funding never does (Nykaa "$103M", Mamaearth "$89.4M", BYJU'S "$4.45B").
+    """
+    date = re.search(r"as on (\w{3} \d{2})", rev or "")
+    if date and date.group(1) not in ("Mar 31", "Dec 31") and (money_usd(rev) or 0) >= 5e8:
+        return None, rev, fund or val
+    if rev and not date and not val and not fund:  # shifted twice: FirstCry's "$513M" is its funding
+        return None, None, rev
+    if val and not fund and " as on " not in val and " - " not in val:
+        return rev, None, val
+    return rev, val, fund
+
+
 def _row_to_company(row: dict) -> dict:
     r = {k: clean_text(v) for k, v in row.items()}
+    revenue, valuation, funding = _unshift_money(money(r["annual_revenue"]), money(r["valuation"]),
+                                                 money(r["total_funding_till_date"]))
+    # Shifted headcounts ("952 as on ...") land in valuation, total_funding or latest_funding_round.
+    employees = r["employee_count"] or next(
+        (r[k] for k in ("valuation", "total_funding_till_date", "latest_funding_round") if _HEADCOUNT.match(r[k])),
+        None)
+    latest_round = None if _HEADCOUNT.match(r["latest_funding_round"]) else r["latest_funding_round"] or None
     sector = r["primary_sector"]
     # Shifted columns put sector names where investors belong; drop those.
     investors = []
@@ -99,11 +128,11 @@ def _row_to_company(row: dict) -> dict:
         "description": r["company_background"],
         "unicorn_info": r["company_info"],
         "investors": investors,
-        "valuation": money(r["valuation"]),
-        "annual_revenue": money(r["annual_revenue"]),
-        "total_funding": money(r["total_funding_till_date"]),
-        "employee_count": r["employee_count"] or None,
-        "latest_funding_round": r["latest_funding_round"] or None,
+        "valuation": valuation,
+        "annual_revenue": revenue,
+        "total_funding": funding,
+        "employee_count": employees,
+        "latest_funding_round": latest_round,
         "time_to_unicorn": r["time_to_unicorn"] or None,
         "profile_url": r["company_link"] or None,
     }

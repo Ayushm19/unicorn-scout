@@ -125,6 +125,29 @@ _SORT_LABELS = {"valuation": "valuation, highest first", "funding": "total fundi
                 "oldest": "founding year, oldest first"}
 
 
+def _count_sentence(n: int, prev: int, *, scoped: bool, widened: bool) -> str:
+    """Opening sentence of a list answer, so the count and scope are always right."""
+    match = lambda k: "matches" if k == 1 else "match"
+    prev_s = "the company" if prev == 1 else f"the {prev} companies"
+    if widened:
+        return f"None of {prev_s} in my previous answer match, so I searched all 118: {n} {match(n)}."
+    if scoped:
+        return (f"All {prev} companies in my previous answer match." if n == prev > 1
+                else f"Of {prev_s} in my previous answer, {n} {match(n)}.")
+    return f"{n} of the 118 unicorns {match(n)}."
+
+
+def _ranked_sentence(rows: list[dict], sort_by: str, limited: bool) -> str:
+    """'Top 5 by valuation: Flipkart ≈ $36.0B, ...' so the order and values never depend on the model."""
+    field = _SORT_FIELD.get(sort_by)
+    value = (lambda r: f"≈ {_usd(v)}" if (v := money_usd(r[field])) else "not reported") if field else (
+        lambda r: str(r["founded_year"]))
+    head = {"newest": f"{len(rows)} newest", "oldest": f"{len(rows)} oldest"}.get(
+        sort_by, f"Top {len(rows)} by {sort_by.replace('funding', 'total funding')}")
+    items = ", ".join(f"**{r['name']}** ({value(r)})" for r in rows[:5])
+    return f"{head}: {items}{', …' if len(rows) > 5 else ''}." if limited else f"Ranked by {sort_by}: {items}, …"
+
+
 def _usd(x: float) -> str:
     return f"${x / 1e9:.1f}B" if x >= 1e9 else f"${x / 1e6:.0f}M"
 
@@ -206,8 +229,13 @@ def _retrieve(route: Route, question: str, prev_ids: list[int], filters: dict) -
             method = "sql+vector" if qv else "sql"
         elif not rows:  # recommendation, unmatched lookup, or a list request with only a semantic need
             limit = 6 if route.intent == "recommendation" else 3 if route.intent == "company_lookup" else 10
-            rows = db.search_companies(filters, embed_query(route.search_query or question), scope, limit=limit)
-            method = "sql+vector" if filters else "vector"
+            qv = embed_query(route.search_query or question)
+            # A need ("last-mile delivery") belongs to the similarity search, not to the exact `sector` filter.
+            sem_filters = {k: v for k, v in filters.items() if k not in ("sector", "sort_by", "limit")}
+            rows = db.search_companies(sem_filters, qv, scope, limit=limit)
+            if not rows and sem_filters:  # filters too strict for a needs-based question: rank all candidates
+                rows = db.search_companies({}, qv, scope, limit=limit)
+            method = "sql+vector" if sem_filters else "vector"
         span.update(output=[r["name"] for r in rows])
         return rows, method
 
@@ -236,6 +264,11 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
         turns = db.recent_turns(session_id, config.HISTORY_TURNS)
         # Working set for "these/those": the latest result list within the remembered turns.
         prev_ids = next((t["retrieved_ids"] for t in reversed(turns) if t["retrieved_ids"]), [])
+        # Answering a clarifying question completes that question; it doesn't narrow older results
+        # ("top 5" -> "Highest revenue" must rank all 118), unless the clarified question said "these".
+        if turns and turns[-1]["outcome"] == "clarification" and not _EXPLICIT_REF.search(
+                turns[-1]["sanitized_query"] or turns[-1]["user_query"]):
+            prev_ids = []
         prev_names = [r["name"] for r in db.companies_by_ids(prev_ids)]
         history = _history_text(turns)
         d.update(turns=len(turns), working_set=len(prev_ids))
@@ -302,21 +335,24 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
         request = route.intent
         if filters.get("sort_by"):
             request += f", ranked by {_SORT_LABELS[filters['sort_by']]}"
-        # Spell out the counts: the model otherwise writes "all 15 of the listed" or "57 of the 57".
-        if route.use_previous_results and prev_ids:
-            request += (f", narrowed from the {len(prev_ids)} companies in the previous answer "
-                        f"(open with \"Of the {len(prev_ids)} above, {len(rows)} ...\")")
-        elif filters.get("limit") and filters.get("sort_by"):
-            request += f" (open with \"The top {len(rows)} by {filters['sort_by']} are ...\")"
-        elif route.intent == "filter_list" and not widened:
-            request += f", searched all 118 (open with \"{len(rows)} of the 118 ...\")"
-        if widened:
-            request += (f", none of the {len(prev_ids)} companies in the previous answer matched, so these are from "
-                        "all 118 (say that first)")
+        lead = ""
+        if route.intent == "filter_list":
+            # The count sentence is written in code: the model miscounts ("42" for 57 rows) and garbles scope.
+            scoped = route.use_previous_results and bool(prev_ids)
+            if filters.get("sort_by") and filters.get("limit") and not (scoped or widened):
+                lead = _ranked_sentence(rows, filters["sort_by"], limited=True)
+            else:
+                lead = _count_sentence(len(rows), len(prev_ids), scoped=scoped, widened=widened)
+                if filters.get("sort_by"):
+                    lead += " " + _ranked_sentence(rows, filters["sort_by"], limited=False)
+            request += ", count and ranking stated by the interface"
+            emit("token", {"text": lead + " "})
         messages = answer_prompt.compile(history=history, intent=request, count=str(len(rows)),
                                          records=records, question=s.text)
         res = llm.chat(messages, name="answer", prompt=answer_prompt, max_tokens=1500,
                        on_token=lambda t: emit("token", {"text": t}))
+        if lead:
+            res.text = f"{lead} {res.text.strip()}"
         rec.update(provider=res.provider, model=res.model, used_fallback=rec["used_fallback"] or res.used_fallback,
                    prompt_tokens=rec["prompt_tokens"] + res.prompt_tokens,
                    completion_tokens=rec["completion_tokens"] + res.completion_tokens, outcome="answered")
