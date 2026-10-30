@@ -13,7 +13,7 @@ management, scores) · Llama Prompt Guard 2 · Vercel.
 
 [![Unicorn Scout HLD: how a question flows](docs/hld.png)](https://excalidraw.com/#json=gTGHAMRl2Ihfv-6hr4Vra,7RfgGl_Imyp5UMSQDCqKjA)
 
-[Open the diagram in Excalidraw](https://excalidraw.com/#json=gTGHAMRl2Ihfv-6hr4Vra,7RfgGl_Imyp5UMSQDCqKjA) · source: [docs/hld.excalidraw](docs/hld.excalidraw) (regenerate with `python docs/make_hld.py`)
+[Open the diagram in Excalidraw](https://excalidraw.com/#json=gTGHAMRl2Ihfv-6hr4Vra,7RfgGl_Imyp5UMSQDCqKjA)
 
 ## Setup
 
