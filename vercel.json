@@ -1,4 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "cleanUrls": true
+  "cleanUrls": true,
+  "functions": {
+    "app/main.py": {
+      "includeFiles": "public/404.html"
+    }
+  }
 }
