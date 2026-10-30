@@ -214,6 +214,25 @@
   .box textarea { width: 100%; border: 0; outline: 0; resize: none; background: transparent; font: 15px/1.5 var(--sans); color: var(--ink);
                   min-height: 24px; max-height: 160px; padding: 2px 0; }
   .box textarea::placeholder { color: var(--ink-3); }
+  /* signed out: the composer is locked, with a "sign in first" bubble on hover/focus/attempt */
+  .box { position: relative; }
+  .box.locked { cursor: not-allowed; background: var(--paper-2); box-shadow: none; }
+  .box.locked textarea { cursor: not-allowed; }
+  .box.locked .hint, .box.locked .count { display: none; }
+  .lock-cta { display: none; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line-2);
+              background: var(--card); color: var(--ink); font-size: 12.5px; font-weight: 600; text-decoration: none; cursor: pointer; }
+  .lock-cta:hover { border-color: var(--ink-3); }
+  .box.locked .lock-cta { display: inline-flex; }
+  .lock-tip { position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translate(-50%, 4px); display: flex; align-items: center; gap: 8px;
+              white-space: nowrap; background: var(--ink); color: var(--paper); font-size: 13px; padding: 8px 12px; border-radius: 10px;
+              box-shadow: var(--shadow); opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; z-index: 5; cursor: default; }
+  .lock-tip::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -6px; border: 6px solid transparent; border-top-color: var(--ink); }
+  .lock-tip::before { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 14px; }  /* hover bridge to the box */
+  .lock-tip svg { flex: none; }
+  .lock-tip a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+  .box.locked:hover .lock-tip, .box.locked:focus-within .lock-tip, .box.locked.nudge .lock-tip { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+  .box.nudge { animation: nudge .35s ease; }
+  @keyframes nudge { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
   .box .row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
   .box .hint { font-size: 11.5px; color: var(--ink-3); display: flex; gap: 10px; align-items: center; }
   .box .count { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
@@ -322,10 +341,18 @@
     <div class="thread" id="thread"><div class="inner" id="log" aria-live="polite"></div></div>
     <div class="composer">
       <form class="box" id="form">
+        <div class="lock-tip" id="lockTip" role="status">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>
+          Sign in first to ask questions · <a class="login-link" href="/auth/login?next=%2Fchat">Sign in with Google</a>
+        </div>
         <label for="input" class="sr-only" style="position:absolute;left:-9999px">Message</label>
         <textarea id="input" rows="1" placeholder="Ask about a company, a sector, a city, or what you're looking for…" autocomplete="off"></textarea>
         <div class="row">
           <span class="hint"><span><kbd>Enter</kbd> send</span><span><kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span><span><kbd>/</kbd> focus</span></span>
+          <a class="lock-cta login-link" href="/auth/login?next=%2Fchat">
+            <svg width="14" height="14" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.7-.4-3.9z"/></svg>
+            Sign in
+          </a>
           <span class="count num" id="count"></span>
           <button class="send" id="send" type="submit" aria-label="Send" disabled>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg>
@@ -687,6 +714,7 @@ function renderContext() {
 /* ---------- send / stream ---------- */
 async function ask(text) {
   text = (text ?? input.value).trim();
+  if (!signedIn()) { nudgeLock(); return; }
   if (!text || busy) return;
   log.querySelector(".empty")?.remove();
   if (!turns.length) setTitle(text);
@@ -699,6 +727,7 @@ async function ask(text) {
     const res = await fetch("/api/chat/stream", {method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({message: text, session_id: sessionId}), signal: busy.signal});
     if (res.status === 404) { sessionId = null; store.set("session_id", null); setUrl(null); throw new Error("gone"); }
+    if (res.status === 401) { account = {...account, user: null}; loadAccount(); throw new Error("signin"); }  // session ended elsewhere
     if (!res.ok || !res.body) throw new Error("HTTP " + res.status);
     const reader = res.body.getReader(), dec = new TextDecoder();
     let buf = "";
@@ -723,6 +752,7 @@ async function ask(text) {
   } catch (e) {
     result = {reply: e.name === "AbortError" ? "Stopped. The server may still finish and log this turn."
                    : e.message === "gone" ? "This chat was deleted or belongs to another account. Your next message starts a new chat."
+                   : e.message === "signin" ? "You're signed out. Sign in with Google to keep chatting."
                    : "Couldn't reach the server. Check your connection and try again.",
               outcome: "error", latency_ms: Math.round(performance.now() - turn.t0), stage_ms: {}, retry: e.name === "AbortError" ? null : text};
   } finally { busy = null; setBusy(false); }
@@ -861,10 +891,26 @@ function renderChats() {
 
 const GOOGLE_G = '<svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.7-.4-3.9z"/></svg>';
 let account = null;
+const signedIn = () => !!account?.user?.signed_in;
+const loginHref = () => "/auth/login?next=" + encodeURIComponent(location.pathname + location.search);
+// Chatting needs an account (the server enforces it too). Signed out, the composer is locked.
+function setLocked(locked) {
+  $("form").classList.toggle("locked", locked);
+  input.disabled = locked;
+  input.placeholder = locked ? "Sign in to ask a question" : "Ask about a company, a sector, a city, or what you're looking for…";
+  if (locked) { send.disabled = true; input.value = ""; }
+  document.querySelectorAll(".login-link").forEach(a => a.href = loginHref());
+}
+function nudgeLock() {
+  const f = $("form");
+  f.classList.remove("nudge"); void f.offsetWidth; f.classList.add("nudge");
+  clearTimeout(nudgeLock.t); nudgeLock.t = setTimeout(() => f.classList.remove("nudge"), 2600);
+}
 async function loadAccount() {
   let me = {user: null, google_enabled: false};
   try { me = await (await fetch("/api/me")).json(); } catch {}
   account = me;
+  setLocked(!signedIn());
   const u = me.user, box = $("account");
   if (u?.signed_in) {
     const initial = esc((u.name || u.email || "?").trim()[0].toUpperCase());
@@ -874,13 +920,14 @@ async function loadAccount() {
     $("signout").onclick = async () => { await fetch("/auth/logout", {method: "POST"}); store.set("session_id", null); location.href = "/chat"; };
   } else {
     box.innerHTML = `<div class="who"><span class="ph"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="5.5" r="2.8"/><path d="M2.8 14c.6-2.7 2.7-4.2 5.2-4.2s4.6 1.5 5.2 4.2"/></svg></span>
-      <div><b>Guest</b><span>${u ? "Chats saved in this browser" : "Not signed in"}</span></div></div>
-      ${me.google_enabled ? `<a class="gbtn" href="/auth/login">${GOOGLE_G}Sign in with Google</a>` : ""}`;
+      <div><b>Not signed in</b><span>Sign in to ask and keep your chats</span></div></div>
+      ${me.google_enabled ? `<a class="gbtn login-link" href="${esc(loginHref())}">${GOOGLE_G}Sign in with Google</a>` : ""}`;
   }
 }
 
 /* ---------- wiring ---------- */
 $("form").addEventListener("submit", e => { e.preventDefault(); busy ? busy.abort() : ask(); });
+$("form").addEventListener("click", e => { if (!signedIn() && !e.target.closest("a")) nudgeLock(); });
 input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!busy) ask(); } });
 input.addEventListener("input", () => { autosize(); updateCount(); });
 document.addEventListener("keydown", e => {
@@ -909,12 +956,15 @@ if (store.get("ctx_hidden")) { shell.classList.add("no-ctx"); $("ctxBtn").setAtt
 
 const params = new URLSearchParams(location.search);
 if (params.get("auth") === "failed") toast("Google sign-in didn't complete. Please try again.");
-loadAccount(); loadSessions();
+loadSessions();
 // /chat?c=<id> opens that chat (reloads and bookmarks keep it); plain /chat, e.g. from the home page, is a new chat.
-// ?q= (the home page's example questions) starts a new chat and asks it.
+// ?q= (the home page's example questions) starts a new chat and asks it. Signed out, it's always a locked new chat.
 const q = params.get("q");
-openSession(q ? null : params.get("c"))
-  .then(() => { if (q) ask(q.slice(0, MAX)); });
+loadAccount().then(async () => {
+  await openSession(signedIn() && !q ? params.get("c") : null);
+  if (q && signedIn()) ask(q.slice(0, MAX));
+  else if (q) { history.replaceState(null, "", "/chat?q=" + encodeURIComponent(q)); setLocked(true); }  // sign-in returns here and asks it
+});
 </script>
 </body>
 </html>

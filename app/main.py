@@ -35,8 +35,8 @@ class ChatIn(BaseModel):
 
 
 def _start_turn(request: Request, body: ChatIn) -> tuple[str, str]:
-    """Resolve the user (creating a guest if needed) and claim the chat for them. 404 if it's someone else's."""
-    user = auth.current_user(request, create=True)
+    """Require a signed-in user (401 otherwise) and claim the chat for them. 404 if it's someone else's."""
+    user = auth.require_user(request)
     session_id = str(body.session_id or uuid4())
     title = " ".join(body.message.split())[:80] or "New chat"
     if not db.claim_session(session_id, user["id"], title):
@@ -84,14 +84,14 @@ def chat_stream(request: Request, body: ChatIn) -> StreamingResponse:
 
 @app.get("/api/sessions")
 def sessions(request: Request) -> list[dict]:
-    """The current user's chats, newest first, for the sidebar."""
-    user = auth.current_user(request)
+    """The signed-in user's chats, newest first, for the sidebar."""
+    user = auth.signed_in_user(request)
     return db.list_sessions(user["id"]) if user else []
 
 
 @app.delete("/api/sessions/{session_id}")
 def delete_session(request: Request, session_id: UUID) -> dict:
-    user = auth.current_user(request)
+    user = auth.signed_in_user(request)
     if not user or not db.delete_session(str(session_id), user["id"]):
         raise HTTPException(404, "Chat not found")
     return {"ok": True}
@@ -100,7 +100,7 @@ def delete_session(request: Request, session_id: UUID) -> dict:
 @app.get("/api/sessions/{session_id}")
 def history(request: Request, session_id: UUID) -> list[dict]:
     """Every turn of a session with its company cards, so the UI can rebuild itself after a reload."""
-    user = auth.current_user(request)
+    user = auth.signed_in_user(request)
     if not user or not db.owns_session(str(session_id), user["id"]):
         raise HTTPException(404, "Chat not found")
     turns = db.session_history(str(session_id))

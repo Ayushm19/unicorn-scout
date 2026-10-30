@@ -186,6 +186,27 @@
   .final h2 { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 6vw, 72px); letter-spacing: -.05em; line-height: 1; margin: 0 0 26px; }
   .final h2 .serif { font-weight: 400; color: var(--accent); }
   footer { border-top: 1px solid var(--line); padding: 22px 0 34px; color: var(--ink-3); font-size: 13px; }
+
+  /* sign-in dialog: shown when a signed-out visitor heads for the chat */
+  .gate { border: 0; padding: 0; background: transparent; max-width: calc(100vw - 32px); }
+  .gate::backdrop { background: rgba(20, 22, 26, .45); backdrop-filter: blur(3px); }
+  .gate[open] { animation: gate-in .22s cubic-bezier(.2, .8, .2, 1); }
+  @keyframes gate-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+  .gate-card { width: 400px; max-width: 100%; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 16px;
+               box-shadow: var(--shadow); padding: 28px 28px 22px; text-align: center; position: relative; }
+  .gate-card h2 { font-family: var(--display); font-weight: 800; font-size: 26px; letter-spacing: -.035em; line-height: 1.1; margin: 18px 0 8px; }
+  .gate-card h2 .serif { font-weight: 400; color: var(--accent); }
+  .gate-card p { color: var(--ink-2); font-size: 14.5px; margin: 0 0 22px; }
+  .gate-q { font-family: var(--mono); font-size: 12px; color: var(--ink-2); background: var(--paper-2); border: 1px solid var(--line);
+            border-radius: 8px; padding: 7px 10px; margin: -8px 0 18px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gbtn { display: flex; align-items: center; justify-content: center; gap: 10px; height: 44px; border-radius: 10px; border: 1px solid var(--line-2);
+          background: var(--card); color: var(--ink); font-weight: 600; font-size: 15px; text-decoration: none; transition: border-color .15s, background .15s; }
+  .gbtn:hover { border-color: var(--ink-3); background: var(--paper); }
+  .gate-close { position: absolute; top: 12px; right: 12px; width: 30px; height: 30px; border-radius: 8px; border: 0; background: transparent;
+                color: var(--ink-3); display: grid; place-items: center; }
+  .gate-close:hover { background: var(--paper-2); color: var(--ink); }
+  .gate-fine { font-size: 12px !important; color: var(--ink-3) !important; margin: 14px 0 0 !important; }
+  .gate-fine a { color: inherit; }
   footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 
   .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
@@ -418,7 +439,43 @@ Banking Tech 3, Investment Tech 2 …</pre></div>
   </div>
 </footer>
 
+<dialog class="gate" id="gate" aria-labelledby="gate-title">
+  <div class="gate-card">
+    <button class="gate-close" type="button" aria-label="Close" onclick="document.getElementById('gate').close()">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+    </button>
+    <svg width="36" height="36" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="var(--ink)"/><path d="M6 19 18 5l-4.5 14Z" fill="var(--paper)"/><path d="M9.6 16.2l4.4.9M11.6 13.4l3.4.7" stroke="var(--ink)" stroke-width="1.2"/><circle cx="18" cy="5" r="2" fill="var(--accent)"/></svg>
+    <h2 id="gate-title">Sign in to <span class="serif">start asking.</span></h2>
+    <p>Your chats are saved to your Google account, so you can pick up on any device.</p>
+    <div class="gate-q" id="gate-q" hidden></div>
+    <a class="gbtn" id="gate-login" href="/auth/login?next=%2Fchat">
+      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.7-.4-3.9z"/></svg>
+      Continue with Google
+    </a>
+    <p class="gate-fine">We only see your name, email and profile picture. <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></p>
+  </div>
+</dialog>
+
 <script>
+// Sign-in gate: every link into the chat checks the session first. Signed-out visitors get the dialog,
+// and Google sends them on to where they were heading (including an example question) afterwards.
+let me = null;
+const meReady = fetch("/api/me").then(r => r.ok ? r.json() : null).then(d => { me = d; }).catch(() => {});
+document.addEventListener("click", async e => {
+  const a = e.target.closest('a[href^="/chat"]');
+  if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+  e.preventDefault();
+  await meReady;
+  const target = a.getAttribute("href");
+  if (!me || me.user?.signed_in) { location.href = target; return; }  // signed in, or couldn't check: the chat page gates too
+  const q = new URLSearchParams(target.split("?")[1] || "").get("q");
+  const qBox = document.getElementById("gate-q");
+  qBox.hidden = !q; qBox.textContent = q ? `“${q}”` : "";
+  document.getElementById("gate-login").href = "/auth/login?next=" + encodeURIComponent(target);
+  document.getElementById("gate").showModal();
+});
+document.getElementById("gate").addEventListener("click", e => { if (e.target.id === "gate") e.target.close(); });  // click outside closes
+
 const nav = document.getElementById("nav");
 addEventListener("scroll", () => nav.classList.toggle("scrolled", scrollY > 8), {passive: true});
 

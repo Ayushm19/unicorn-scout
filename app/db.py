@@ -267,10 +267,6 @@ def get_user(user_id: str) -> dict | None:
                           (user_id,)).fetchone()
 
 
-def create_guest() -> dict:
-    return conn().execute(f"INSERT INTO users DEFAULT VALUES RETURNING {_USER_COLS}").fetchone()
-
-
 def upsert_google_user(sub: str, email: str, name: str | None, picture: str | None) -> dict:
     return conn().execute(
         f"""INSERT INTO users (google_sub, email, name, picture) VALUES (%s, %s, %s, %s)

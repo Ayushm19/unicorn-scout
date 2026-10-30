@@ -47,7 +47,7 @@ Fill in `.env` (never committed):
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` | Langfuse → project → Settings → API Keys |
 | `GROQ_API_KEYS` | console.groq.com/keys; comma-separate several keys to rotate on rate limits |
 | `GEMINI_API_KEYS` | aistudio.google.com/apikey; comma-separated as above |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google Cloud → Google Auth Platform → Clients → Web application. Authorized redirect URI: `http://localhost:8000/auth/callback` (add `https://<your-domain>/auth/callback` when deployed). Optional: without them the app runs guest-only |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google Cloud → Google Auth Platform → Clients → Web application. Authorized redirect URI: `http://localhost:8000/auth/callback` (add `https://<your-domain>/auth/callback` when deployed). Required: chatting needs a signed-in Google account |
 | `SESSION_SECRET` | Any long random string; signs the login cookie. Rotating it signs everyone out |
 
 Load the data and prompts once:
@@ -79,19 +79,23 @@ Variables. Vercel detects the FastAPI `app` in `app/main.py`, serves `public/` f
 | `DELETE` | `/api/sessions/{id}` | Soft-deletes a chat you own (hidden from you, logs kept for analytics) |
 | `GET` | `/auth/login`, `/auth/callback` | Google sign-in (authorization-code flow with a CSRF `state`) |
 | `POST` | `/auth/logout` | Clears the session cookie |
-| `GET` | `/api/me` | The current user (or guest) and whether Google sign-in is configured |
+| `GET` | `/api/me` | The current user (or `null` when signed out) and whether Google sign-in is configured |
 | `GET` | `/api/metrics` | Query counts, clarifications, blocked, off-topic, errors, fallbacks, tokens, avg/p95 latency, and the same split by prompt version |
 | `GET` | `/api/health` | Database connectivity check |
 
 Chat endpoints identify the caller by the `scout_session` cookie, so API clients must keep cookies between
-requests (e.g. one `httpx.Client`). The first message from a cookie-less client creates a guest account.
+requests (e.g. one `httpx.Client`). Without a signed-in session, `/api/chat` and `/api/chat/stream` return 401.
 
 ### Accounts, chats and reloads
 
-- **Who you are.** A signed, HttpOnly cookie holds only your user id. Everyone starts as a guest (a `users` row
-  with no Google id, created on the first message). Signing in with Google upserts your account by Google's
-  stable `sub` id and moves that browser's guest chats into it, so nothing typed before signing in is lost. Chats
-  are never moved out of a signed-in account.
+- **Sign-in is required to chat.** The server enforces it (`auth.require_user`: 401 for anyone not signed in with
+  Google), and the UI mirrors it: on the home page, any link into the chat opens a "Continue with Google" dialog
+  instead (an example question you clicked is carried through sign-in and asked when you land); on the chat page,
+  signed-out visitors (including right after signing out) see a locked composer with a "Sign in first" bubble.
+  `/auth/login?next=` returns you to where you started, accepting same-site paths only (no open redirect).
+- **Who you are.** A signed, HttpOnly cookie holds only your user id. Signing in upserts your account by Google's
+  stable `sub` id. Chats a browser made as a guest before sign-in became mandatory are moved into the account the
+  first time it signs in; chats are never moved out of a signed-in account.
 - **Where chats live.** `chat_sessions` (id, owner, title, timestamps, soft delete) plus one `chat_logs` row per turn.
   Every read and write checks ownership in SQL; someone else's chat id returns 404, never its contents.
 - **What happens on a hard reload.** The open chat is in the URL (`/chat?c=<id>`). On load the page asks
@@ -154,7 +158,7 @@ chatbot.handle_turn(session, message, emit) ── one Langfuse trace per turn, 
 | `app/sanitize.py` | Input normalization and injection heuristics |
 | `app/chatbot.py` | Orchestrates a turn and emits stage, company and token events |
 | `app/observability.py` | JSON logs to stdout and to Postgres |
-| `app/auth.py` | Google sign-in, the session cookie, and the current user (guest or signed in) |
+| `app/auth.py` | Google sign-in, the session cookie, the current user, and the sign-in requirement for chat |
 | `app/main.py` | HTTP routes, ownership checks, the SSE relay and the static pages |
 | `public/` | Landing page, chat app and shared design tokens (`base.css`) |
 
@@ -235,8 +239,8 @@ chatbot.handle_turn(session, message, emit) ── one Langfuse trace per turn, 
   public dataset, but not for private user data.
 - The context-window breakdown estimates each section's share from its character count, scaled to the provider's
   real prompt-token total.
-- The Google OAuth app is in "Testing" mode, so only accounts listed as test users can sign in until it is published.
-  Guests can always chat. Before deploying, add the production redirect URI to the OAuth client.
+- Chatting requires a Google account. The OAuth app is published ("In production") with only basic scopes
+  (name, email, picture), so no Google verification is needed; adding a logo would trigger verification.
 - No per-user rate limiting yet.
 - Stopping a streaming answer in the UI closes the stream; the server still finishes and logs the turn.
 
