@@ -59,6 +59,20 @@ def money(value: str) -> str | None:
     return value if re.match(r"^[$₹]", value) or re.search(r"\b(USD|INR|SGD)\b", value) else None
 
 
+# ponytail: fixed FX rates, only used to order companies; swap in dated rates if exact USD figures ever matter.
+_TO_USD = {"$": 1.0, "₹": 1 / 85, "SGD": 0.75}
+_UNITS = {"B": 1e9, "M": 1e6, "Cr": 1e7, "L": 1e5}
+
+
+def money_usd(value: str | None) -> float | None:
+    """Approximate USD amount of a money field, for sorting ("$36B as on ...", "₹2,786Cr", "1.33B SGD").
+    A range ("$1.67B - $3.12B") counts as its lower bound."""
+    m = re.match(r"^([$₹])?([\d,.]+)\s*(B|M|Cr|L)?\s*(SGD)?", value or "")
+    if not m or not (m.group(1) or m.group(4)):
+        return None
+    return float(m.group(2).replace(",", "")) * _UNITS.get(m.group(3), 1) * _TO_USD[m.group(1) or m.group(4)]
+
+
 def normalize_city(city: str | None) -> str | None:
     if not city:
         return None

@@ -157,6 +157,10 @@ def search_companies(filters: dict, query_vec: list[float] | None, scope_ids: li
         if filters.get(col):
             where.append(f"lower({col}) = lower(%({col})s)")
             params[col] = filters[col]
+    for col in ("country", "city"):
+        if filters.get(f"exclude_{col}"):
+            where.append(f"lower({col}) <> ALL(%(exclude_{col})s)")
+            params[f"exclude_{col}"] = [v.lower() for v in filters[f"exclude_{col}"]]
     if filters.get("sector"):
         where.append("sector ILIKE %(sector)s")
         params["sector"] = f"%{filters['sector']}%"

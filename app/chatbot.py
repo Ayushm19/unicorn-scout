@@ -9,6 +9,7 @@ push pipeline stages and answer tokens to the UI as they happen; the JSON endpoi
 """
 import json
 import logging
+import re
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -19,7 +20,7 @@ from langfuse import get_client, propagate_attributes
 from pydantic import BaseModel, ValidationError
 
 from app import config, db, llm, prompts
-from app.data import SECTOR_GROUPS, normalize_city
+from app.data import SECTOR_GROUPS, money_usd, normalize_city
 from app.embeddings import embed_query
 from app.sanitize import REJECTION_MESSAGES, sanitize
 
@@ -34,7 +35,8 @@ OFF_TOPIC = ("I can only answer questions about the Indian unicorn startups in m
 ERROR_REPLY = "Sorry, something went wrong on my side. Please try again in a moment."
 DEFAULT_CLARIFY = "Could you tell me a bit more about what you're looking for (e.g. sector, city, or the kind of collaboration)?"
 
-_STAGE_ALIASES = {"ipo": "Public", "listed": "Public", "public": "Public", "acquired": "Acquired"}
+_EXPLICIT_REF = re.compile(r"\b(these|those|them|they|above|previous|that list)\b", re.I)
+_STAGE_ALIASES ={"ipo": "Public", "listed": "Public", "public": "Public", "acquired": "Acquired"}
 _COUNTRY_ALIASES = {"us": "United States", "usa": "United States", "america": "United States",
                     "united states": "United States", "india": "India", "singapore": "Singapore"}
 _CARD_FIELDS = ("id", "name", "sector", "sector_group", "city", "country", "stage", "founded_year", "description",
@@ -46,10 +48,30 @@ class Filters(BaseModel, extra="ignore"):
     sector: str | None = None
     city: str | None = None
     country: str | None = None
+    exclude_country: list[str] | str | None = None  # "outside India" -> ["India"]
+    exclude_city: list[str] | str | None = None  # "not in Bangalore or Mumbai" -> ["Bangalore", "Mumbai"]
     stage: str | None = None
     founded_from: int | None = None  # inclusive
     founded_to: int | None = None  # inclusive
     investor: str | None = None
+    sort_by: Literal["valuation", "funding", "revenue", "newest", "oldest"] | None = None
+    limit: int | None = None  # "top 5" -> 5
+
+
+# sort_by -> (key on a company row, highest first?). Money fields sort by approximate USD; unknown values go last.
+_SORTS = {"valuation": (lambda r: money_usd(r["valuation"]), True),
+          "funding": (lambda r: money_usd(r["total_funding"]), True),
+          "revenue": (lambda r: money_usd(r["annual_revenue"]), True),
+          "newest": (lambda r: r["founded_year"], True),
+          "oldest": (lambda r: r["founded_year"], False)}
+
+
+def sort_and_limit(rows: list[dict], filters: dict) -> list[dict]:
+    if filters.get("sort_by") in _SORTS:
+        key, desc = _SORTS[filters["sort_by"]]
+        known = [r for r in rows if key(r) is not None]
+        rows = sorted(known, key=key, reverse=desc) + [r for r in rows if key(r) is None]
+    return rows[:filters["limit"]] if filters.get("limit") else rows
 
 
 class Route(BaseModel, extra="ignore"):
@@ -69,10 +91,17 @@ def normalize_filters(f: Filters | None) -> dict:
     out = f.model_dump(exclude_none=True)
     if "sector_group" in out:
         out["sector_group"] = next((g for g in SECTOR_GROUPS if g.lower() == out["sector_group"].lower()), None)
+    country = lambda c: _COUNTRY_ALIASES.get(c.strip().lower(), c.strip())
     if "city" in out:
         out["city"] = normalize_city(out["city"])
     if "country" in out:
-        out["country"] = _COUNTRY_ALIASES.get(out["country"].lower(), out["country"])
+        out["country"] = country(out["country"])
+    for key, norm in (("exclude_city", normalize_city), ("exclude_country", country)):
+        if key in out:
+            values = [out[key]] if isinstance(out[key], str) else out[key]
+            out[key] = [norm(v) for v in values if v and v.strip()] or None
+    if out.get("limit") is not None and not 1 <= out["limit"] <= 118:
+        del out["limit"]
     if "stage" in out:
         s = out["stage"].strip()
         out["stage"] = _STAGE_ALIASES.get(s.lower(), s.title())
@@ -90,14 +119,41 @@ def _tally(rows: list[dict], key: str) -> str:
     return ", ".join(f"{k} {n}" for k, n in Counter(r[key] for r in rows).most_common(6))
 
 
-def _format_records(rows: list[dict]) -> str:
+_SORT_FIELD = {"valuation": "valuation", "funding": "total_funding", "revenue": "annual_revenue"}
+_SORT_LABELS = {"valuation": "valuation, highest first", "funding": "total funding, highest first",
+                "revenue": "annual revenue, highest first", "newest": "founding year, newest first",
+                "oldest": "founding year, oldest first"}
+
+
+def _usd(x: float) -> str:
+    return f"${x / 1e9:.1f}B" if x >= 1e9 else f"${x / 1e6:.0f}M"
+
+
+def _ranking(rows: list[dict], sort_by: str | None) -> str:
+    """The order and the approximate USD values, computed in code: the model reorders lists and mis-converts ₹."""
+    field = _SORT_FIELD.get(sort_by)
+    if not field:
+        return ""
+    items = [f"{i}. {r['name']} ≈ {_usd(v)}" if (v := money_usd(r[field])) else f"{i}. {r['name']} (not reported)"
+             for i, r in enumerate(rows, 1)]
+    return f"Ranking by {sort_by} (approximate USD, keep this order): " + "; ".join(items[:10]) + "\n\n"
+
+
+def _format_records(rows: list[dict], sort_by: str | None = None) -> str:
+    return _ranking(rows, sort_by) + _records(rows, sort_by)
+
+
+def _records(rows: list[dict], sort_by: str | None) -> str:
     if len(rows) > 6:  # compact one-liners keep long lists inside the free-tier token budget
         # Precomputed tallies: LLMs miscount long lists, so give them the arithmetic.
         totals = (f"Totals ({len(rows)} companies). By city: {_tally(rows, 'city')}. "
+                  f"By country: {_tally(rows, 'country')}. "
                   f"By sector: {_tally(rows, 'sector')}. By stage: {_tally(rows, 'stage')}. "
                   f"By founding year: {_tally(rows, 'founded_year')}.\n")
+        extra = _SORT_FIELD.get(sort_by)  # a ranked list must show the value it is ranked by
         return totals + "\n".join(f"- {r['name']} | {r['sector']} ({r['sector_group']}) | {r['city']}, "
-                                  f"{r['country']} | {r['stage']} | founded {r['founded_year']}" for r in rows)
+                                  f"{r['country']} | {r['stage']} | founded {r['founded_year']}"
+                                  + (f" | {extra} {r[extra] or 'not reported'}" if extra else "") for r in rows)
     fields = ["sector", "sector_group", "city", "country", "founded_year", "stage", "description", "unicorn_info",
               "valuation", "annual_revenue", "total_funding", "employee_count", "latest_funding_round",
               "time_to_unicorn", "investors"]
@@ -142,9 +198,12 @@ def _retrieve(route: Route, question: str, prev_ids: list[int], filters: dict) -
         rows, method = [], "name"
         if route.intent == "company_lookup":
             rows = db.find_companies_by_name(route.companies or [])
-        if route.intent == "filter_list" and filters:
+        # A list request is SQL unless it is purely a semantic need: "top 5 companies" has no filter but
+        # must still rank all 118, and "outside India" must never become a similarity search.
+        if route.intent == "filter_list" and (filters or not route.search_query):
             qv = embed_query(route.search_query) if route.search_query else None
-            rows, method = db.search_companies(filters, qv, scope, limit=120), "sql+vector" if qv else "sql"
+            rows = sort_and_limit(db.search_companies(filters, qv, scope, limit=120), filters)
+            method = "sql+vector" if qv else "sql"
         elif not rows:  # recommendation, unmatched lookup, or a list request with only a semantic need
             limit = 6 if route.intent == "recommendation" else 3 if route.intent == "company_lookup" else 10
             rows = db.search_companies(filters, embed_query(route.search_query or question), scope, limit=limit)
@@ -218,20 +277,43 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
 
     with _stage(emit, rec, "retrieve", "Searching 118 companies") as d:
         rows, method = _retrieve(route, s.text, prev_ids, filters)
+        # "What are out of India?" right after a list is read as a follow-up. If none of the previous companies
+        # match and the user didn't explicitly say "these", search all 118 instead of answering "none".
+        widened = False
+        if not rows and route.use_previous_results and prev_ids and not _EXPLICIT_REF.search(s.text):
+            route.use_previous_results, widened = False, True
+            rows, method = _retrieve(route, s.text, prev_ids, filters)
         rec["retrieved_ids"] = [r["id"] for r in rows]
         d.update(count=len(rows), method=method, scoped=bool(route.use_previous_results and prev_ids))
     cards = [company_card(r) for r in rows]
     emit("companies", {"intent": route.intent, "filters": filters, "companies": cards})
     if not rows:
         rec["outcome"] = "answered"
+        if route.use_previous_results and prev_ids:
+            return {"reply": "None of the companies in my previous answer match that. "
+                             "Ask again without \"these\" to search all 118.", "companies": []}
         return {"reply": "I couldn't find any companies in the dataset matching that. "
                          "Try a broader sector or a different city.", "companies": []}
 
     with _stage(emit, rec, "answer", "Writing the answer") as d:
         answer_prompt = prompts.get_prompt("answer")
         rec["prompt_versions"]["answer"] = prompts.version_of(answer_prompt)
-        records = _format_records(rows)
-        messages = answer_prompt.compile(history=history, intent=route.intent, count=str(len(rows)),
+        records = _format_records(rows, filters.get("sort_by"))
+        request = route.intent
+        if filters.get("sort_by"):
+            request += f", ranked by {_SORT_LABELS[filters['sort_by']]}"
+        # Spell out the counts: the model otherwise writes "all 15 of the listed" or "57 of the 57".
+        if route.use_previous_results and prev_ids:
+            request += (f", narrowed from the {len(prev_ids)} companies in the previous answer "
+                        f"(open with \"Of the {len(prev_ids)} above, {len(rows)} ...\")")
+        elif filters.get("limit") and filters.get("sort_by"):
+            request += f" (open with \"The top {len(rows)} by {filters['sort_by']} are ...\")"
+        elif route.intent == "filter_list" and not widened:
+            request += f", searched all 118 (open with \"{len(rows)} of the 118 ...\")"
+        if widened:
+            request += (f", none of the {len(prev_ids)} companies in the previous answer matched, so these are from "
+                        "all 118 (say that first)")
+        messages = answer_prompt.compile(history=history, intent=request, count=str(len(rows)),
                                          records=records, question=s.text)
         res = llm.chat(messages, name="answer", prompt=answer_prompt, max_tokens=1500,
                        on_token=lambda t: emit("token", {"text": t}))

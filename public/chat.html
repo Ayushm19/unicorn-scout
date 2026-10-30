@@ -428,13 +428,19 @@ function setTitle(text) { $("title").innerHTML = text ? `<b>${esc(text)}</b>` : 
 /* ---------- generative components ---------- */
 function filterChips(filters) {
   const labels = {sector_group: v => v, sector: v => v, city: v => v, country: v => v, stage: v => v, investor: v => "investor: " + v,
-                  founded_from: v => "founded ≥ " + v, founded_to: v => "founded ≤ " + v};
+                  founded_from: v => "founded ≥ " + v, founded_to: v => "founded ≤ " + v, exclude_country: v => "outside " + [].concat(v).join(", "), exclude_city: v => "not " + [].concat(v).join(", "),
+                  sort_by: v => "by " + v, limit: v => "top " + v};
   return Object.entries(filters || {}).map(([k, v]) => `<span class="chip">${esc((labels[k] || (x => x))(v))}</span>`).join("");
 }
 
 function tableView(companies, filters, scoped) {
   const wrap = el("div", "tbl");
   const cols = [["name", "Company"], ["sector", "Sector"], ["city", "City"], ["stage", "Stage"], ["founded_year", "Founded"]];
+  // A money ranking shows the ranked value. Its text ("$36B", "₹2,786Cr") can't be compared as a string, so the
+  // column sorts by the server's order (_i), which is already that ranking.
+  const money = {valuation: ["valuation", "Valuation"], funding: ["total_funding", "Funding"], revenue: ["annual_revenue", "Revenue"]}[filters?.sort_by];
+  if (money) cols.push(["_i", money[1]]);
+  companies = companies.map((c, i) => ({...c, _i: i}));
   let sortKey = null, dir = 1, expanded = companies.length <= 8;
   wrap.innerHTML = `<div class="tbl-head"><span class="count num">${companies.length} ${companies.length === 1 ? "company" : "companies"}</span>
     <span class="filters">${filterChips(filters)}${scoped ? '<span class="chip">within previous answer</span>' : ""}</span></div>
@@ -449,7 +455,7 @@ function tableView(companies, filters, scoped) {
       <td>${esc(c.name)}</td>
       <td><span class="sdot" style="background:${GROUP_COLORS[c.sector_group] || "var(--ink-3)"}" title="${esc(c.sector_group)}"></span>${esc(c.sector)}</td>
       <td>${esc(c.city)}${c.country !== "India" ? `<span class="muted">, ${esc(c.country)}</span>` : ""}</td>
-      <td>${esc(c.stage)}</td><td class="num">${esc(c.founded_year)}</td></tr>`).join("");
+      <td>${esc(c.stage)}</td><td class="num">${esc(c.founded_year)}</td>${money ? `<td class="num">${esc((c[money[0]] || "–").split(" as on")[0])}</td>` : ""}</tr>`).join("");
     more.textContent = expanded ? "Show fewer" : `Show all ${companies.length}`;
     more.hidden = companies.length <= 8;
   }

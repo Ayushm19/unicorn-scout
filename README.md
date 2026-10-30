@@ -156,7 +156,6 @@ chatbot.handle_turn(session, message, emit) ── one Langfuse trace per turn, 
 - An evaluation set (questions → expected companies or outcomes) run as a Langfuse dataset experiment on every prompt change.
 - Rate limiting per session/IP, and authentication for `/api/metrics`.
 - A connection pool (`psycopg_pool`) for higher concurrency per function instance.
-- Parse valuation and funding into numbers for "top 5 by valuation"-style questions.
 - User feedback (thumbs up/down) sent as Langfuse scores.
 - A real "stop": today, stopping a streaming answer in the UI only closes the stream, while the server still
   finishes and logs the turn. With more time the server would cancel the LLM call too.
