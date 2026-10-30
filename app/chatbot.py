@@ -173,11 +173,13 @@ def _format_records(rows: list[dict], sort_by: str | None = None) -> str:
 
 def _records(rows: list[dict], sort_by: str | None) -> str:
     if len(rows) > 6:  # compact one-liners keep long lists inside the free-tier token budget
+        years = [r["founded_year"] for r in rows if r["founded_year"]]
         # Precomputed tallies: LLMs miscount long lists, so give them the arithmetic.
         totals = (f"Totals ({len(rows)} companies). By city: {_tally(rows, 'city')}. "
                   f"By country: {_tally(rows, 'country')}. "
                   f"By sector: {_tally(rows, 'sector')}. By stage: {_tally(rows, 'stage')}. "
-                  f"By founding year: {_tally(rows, 'founded_year')}.\n")
+                  f"By founding year: {_tally(rows, 'founded_year')}. Founded "
+                  f"{min(years, default='?')}-{max(years, default='?')}.\n")
         extra = _SORT_FIELD.get(sort_by)  # a ranked list must show the value it is ranked by
         return totals + "\n".join(f"- {r['name']} | {r['sector']} ({r['sector_group']}) | {r['city']}, "
                                   f"{r['country']} | {r['stage']} | founded {r['founded_year']}"
@@ -232,7 +234,15 @@ def _retrieve(route: Route, question: str, prev_ids: list[int], filters: dict) -
             qv = embed_query(route.search_query) if route.search_query else None
             rows = sort_and_limit(db.search_companies(filters, qv, scope, limit=120), filters)
             method = "sql+vector" if qv else "sql"
-        elif not rows:  # recommendation, unmatched lookup, or a list request with only a semantic need
+            if not rows and filters.get("sector"):
+                # No sector is named like that ("voice AI" vs "Speech and Voice Recognition"): rank by meaning.
+                rest = {k: v for k, v in filters.items() if k != "sector"}
+                sector = filters["sector"] if isinstance(filters["sector"], str) else " ".join(filters["sector"])
+                rows = sort_and_limit(db.search_companies(rest, embed_query(sector), scope, limit=10), rest)
+                method = "vector"
+        elif not rows and not (route.intent == "company_lookup" and route.companies):
+            # recommendation, a lookup with no name, or a list request with only a semantic need. A named company
+            # that isn't in the dataset gets no similarity fallback, so it is never answered with a different company.
             limit = 6 if route.intent == "recommendation" else 3 if route.intent == "company_lookup" else 10
             qv = embed_query(route.search_query or question)
             # A need ("last-mile delivery") belongs to the similarity search, not to the exact `sector` filter.
@@ -327,6 +337,10 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
     emit("companies", {"intent": route.intent, "filters": filters, "companies": cards})
     if not rows:
         rec["outcome"] = "answered"
+        if route.intent == "company_lookup" and route.companies:
+            names = " and ".join(route.companies)
+            return {"reply": f"{names} {'is' if len(route.companies) == 1 else 'are'} not among the 118 unicorns in "
+                             "my dataset (Tracxn, May 2025), so I can't answer that.", "companies": []}
         if route.use_previous_results and prev_ids:
             return {"reply": "None of the companies in my previous answer match that. "
                              "Ask again without \"these\" to search all 118.", "companies": []}
@@ -347,7 +361,12 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
             if filters.get("sort_by") and filters.get("limit") and not (scoped or widened):
                 lead = _ranked_sentence(rows, filters["sort_by"], limited=True)
             else:
-                lead = _count_sentence(len(rows), len(prev_ids), scoped=scoped, widened=widened)
+                if method == "vector":  # a list by meaning, not by attributes: a top-N, not a full count
+                    lead = f"These are the {len(rows)} closest matches by description."
+                elif filters or scoped or widened:
+                    lead = _count_sentence(len(rows), len(prev_ids), scoped=scoped, widened=widened)
+                else:
+                    lead = f"The dataset has {len(rows)} unicorns."
                 if filters.get("sort_by"):
                     lead += " " + _ranked_sentence(rows, filters["sort_by"], limited=False)
             request += ", count and ranking stated by the interface"

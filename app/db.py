@@ -232,7 +232,9 @@ def session_history(session_id: str) -> list[dict]:
 def companies_by_ids(ids: list[int]) -> list[dict]:
     if not ids:
         return []
-    return conn().execute(f"SELECT {_PUBLIC_COLS} FROM companies WHERE id = ANY(%s)", (ids,)).fetchall()
+    # Keep the order the answer showed them in, so "the first one" means the first row of that table.
+    return conn().execute(f"SELECT {_PUBLIC_COLS} FROM companies WHERE id = ANY(%s) ORDER BY array_position(%s, id)",
+                          (ids, ids)).fetchall()
 
 
 def metrics() -> dict:
