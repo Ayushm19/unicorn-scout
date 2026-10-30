@@ -5,7 +5,7 @@ A Python GenAI chatbot that answers questions about the 118 Indian unicorns in t
 It keeps conversation context, asks a clarifying question when a request is vague, streams its work to a
 web UI as it happens, and logs every turn with the prompt versions used.
 
-**Stack (all free tiers):** FastAPI · Groq (`gpt-oss-120b`) with Gemini (`gemini-3.5-flash-lite`) as fallback ·
+**Stack (all free tiers):** FastAPI · Groq (`gpt-oss-120b`) with Gemini (`gemini-3.1-flash-lite`, then `gemini-3.5-flash-lite`) as fallback ·
 Gemini embeddings (`gemini-embedding-001`, 768-d) · Neon Postgres + pgvector · Langfuse (tracing, prompt
 management, scores) · Llama Prompt Guard 2 · Vercel.
 
@@ -94,10 +94,14 @@ requests (e.g. one `httpx.Client`). The first message from a cookie-less client 
   are never moved out of a signed-in account.
 - **Where chats live.** `chat_sessions` (id, owner, title, timestamps, soft delete) plus one `chat_logs` row per turn.
   Every read and write checks ownership in SQL; someone else's chat id returns 404, never its contents.
-- **What happens on a hard reload.** The open chat is in the URL (`/chat?c=<id>`), and the last one is also remembered
-  in `localStorage`. On load the page asks `/api/sessions/<id>` for the turns, then rebuilds the messages, tables, fact
-  cards and the Context panel (from the stored token counts, stage timings and context breakdown). Nothing is kept
-  only in the browser, so the same chat opens identically on another device after signing in.
+- **What happens on a hard reload.** The open chat is in the URL (`/chat?c=<id>`). On load the page asks
+  `/api/sessions/<id>` for the turns, then rebuilds the messages, step timelines, tables, fact cards and the Context
+  panel (from the stored token counts, stage timings, stage details and context breakdown), and scrolls to the start of
+  the latest question. Nothing is kept only in the browser, so the same chat opens identically on another device after
+  signing in. Plain `/chat` (e.g. from the home page) always starts a new chat; a bad or foreign `?c=` falls back to a
+  new chat with a notice.
+- **Instant switching.** After the sidebar loads, the three most recent chats are fetched in the background and cached,
+  so opening them renders immediately; a chat's cache entry is dropped when a new turn is added to it.
 - **What the model remembers.** Independently of the UI, every turn rebuilds the model's context on the server from
   the last 3 turns of *that chat* in `chat_logs`, plus the companies from its latest answer ("these"). "New chat"
   just starts a new chat id: the model starts with an empty memory, and the old chat stays in the sidebar.
@@ -186,9 +190,13 @@ chatbot.handle_turn(session, message, emit) ── one Langfuse trace per turn, 
 - **Defence in depth for prompt injection.** Regex heuristics (fast, deterministic), then a dedicated classifier,
   then prompts that treat the user message as data and allow answers only from retrieved records. SQL is fully
   parameterized; the UI escapes all HTML before rendering its small markdown subset.
-- **Resilience.** Each provider rotates through its API keys on any API error, then falls back to the next
-  provider. Fallbacks and rotations are logged and counted. Any unexpected failure becomes a friendly reply plus
-  an `error` row, so the API never returns a stack trace.
+- **Resilience.** The chain is Groq `gpt-oss-120b` → Gemini `gemini-3.1-flash-lite` → Gemini `gemini-3.5-flash-lite`.
+  Each provider rotates through its API keys on any API error, including a per-call timeout (12 s for Gemini, whose
+  free tier occasionally stalls for 20 s+), then falls back to the next. Measured with Groq fully down, turns completed
+  in 3–10 s on the fallback. Fallbacks and rotations are logged and counted. Prompt Guard fails open; if every
+  provider is down the user gets a friendly reply and an `error` row, never a stack trace.
+- **Unknown URLs.** Page paths that don't exist get a branded 404 page; API and auth routes keep JSON errors (404, or
+  422 for malformed ids and bodies). Only files directly inside `public/` are served, so `/.env` or `/app.py` are 404.
 - **Embeddings via API, not a local model.** A local ONNX/PyTorch model would bloat the Vercel bundle and slow
   cold starts. Companies are embedded once at ingest, and each request embeds only the query.
 
@@ -219,7 +227,7 @@ chatbot.handle_turn(session, message, emit) ── one Langfuse trace per turn, 
 - "Good fit for collaboration" is matched on company descriptions and sectors only; there is no data on
   partnership programmes, APIs or strategy.
 - Free-tier rate limits (Groq: about 8K tokens/min per key) cap throughput at a few turns per minute per key; key
-  rotation and the Gemini fallback absorb bursts. The fallback is slower (about 5–10 s per call on Gemini's free tier).
+  rotation and the Gemini fallback absorb bursts. A turn on the fallback typically takes 3–10 s.
 - Gemini's free embedding quota is 100 texts/minute per key. Ingesting 118 companies rotates to the second key,
   while queries use one embedding each.
 - The prompt-guard classifier fails open if it is unavailable; the regex layer and grounded prompts still apply.

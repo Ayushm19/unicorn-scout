@@ -8,9 +8,11 @@ from queue import Queue
 from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, StreamingResponse
 from langfuse import get_client
 from pydantic import BaseModel, Field
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import auth, chatbot, config, db
@@ -120,15 +122,19 @@ def health() -> dict:
     return {"ok": True}
 
 
-# Local dev only: on Vercel the CDN serves public/ first (cleanUrls maps /chat to chat.html).
+# Pages and assets. On Vercel the CDN serves public/ first (cleanUrls maps /chat to chat.html); these
+# routes cover local dev. no-cache = always revalidate, so an edit or deploy shows on the next load.
+_NO_CACHE = {"Cache-Control": "no-cache"}
+
+
 @app.get("/", include_in_schema=False)
 def landing() -> FileResponse:
-    return FileResponse(PUBLIC / "index.html")
+    return FileResponse(PUBLIC / "index.html", headers=_NO_CACHE)
 
 
 @app.get("/chat", include_in_schema=False)
 def chat_page() -> FileResponse:
-    return FileResponse(PUBLIC / "chat.html")
+    return FileResponse(PUBLIC / "chat.html", headers=_NO_CACHE)
 
 
 @app.get("/{name}.{ext}", include_in_schema=False)
@@ -136,4 +142,12 @@ def static_file(name: str, ext: str) -> FileResponse:
     path = (PUBLIC / f"{name}.{ext}").resolve()
     if path.parent != PUBLIC.resolve() or not path.is_file():
         raise HTTPException(404)
-    return FileResponse(path)
+    return FileResponse(path, headers=_NO_CACHE)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def page_not_found(request: Request, exc: StarletteHTTPException):
+    """Unknown page URLs get a real 404 page; API and auth routes keep their JSON errors."""
+    if exc.status_code == 404 and not request.url.path.startswith(("/api/", "/auth/")):
+        return FileResponse(PUBLIC / "404.html", status_code=404, headers=_NO_CACHE)
+    return await http_exception_handler(request, exc)

@@ -46,6 +46,8 @@
   .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 9px 14px;
            border-radius: 8px; font-size: 13px; z-index: 60; box-shadow: var(--shadow); animation: rise .2s ease; }
   .icon-btn.menu-btn { display: none; }
+  .top-brand { display: none; flex: none; }  /* the way home when the sidebar (and its logo) is hidden */
+  body.side-collapsed .top-brand { display: inline-flex; }
   .scrim { display: none; }
   .side-close { border: 0; background: transparent; color: var(--ink-3); width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center; }
   .side-close:hover { color: var(--ink); background: var(--line); }
@@ -267,10 +269,10 @@
     .side { position: fixed; inset: 0 auto 0 0; width: min(300px, 86vw); z-index: 40; transform: translateX(-100%); transition: transform .25s ease; box-shadow: var(--shadow); }
     body.side-open .side { transform: none; }
     body.side-open .scrim { display: block; position: fixed; inset: 0; z-index: 35; background: rgba(0, 0, 0, .25); }
-    .icon-btn.menu-btn { display: inline-flex; }
+    .icon-btn.menu-btn, .top-brand { display: inline-flex; }
   }
   @media (max-width: 600px) {
-    .top { gap: 8px; padding: 0 12px; } .icon-btn .lbl { display: none; }
+    .top { gap: 8px; padding: 0 12px; } .icon-btn .lbl, .top-brand > span { display: none; }
     .icon-btn { padding: 0 9px; } .inner { padding: 20px 14px; } .composer { padding: 8px 12px 12px; }
     .u { max-width: 90%; } .facts { grid-template-columns: 1fr 1fr; }
   }
@@ -300,6 +302,10 @@
   <button class="icon-btn menu-btn" id="menuBtn" type="button" aria-label="Open sidebar" aria-controls="side" title="Open sidebar (Ctrl+B)">
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M6 2.5v11M9.2 6.2 11 8l-1.8 1.8"/></svg>
   </button>
+  <a class="brand top-brand" href="/" aria-label="Unicorn Scout home">
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="var(--ink)"/><path d="M6 19 18 5l-4.5 14Z" fill="var(--paper)"/><path d="M9.6 16.2l4.4.9M11.6 13.4l3.4.7" stroke="var(--ink)" stroke-width="1.2"/><circle cx="18" cy="5" r="2" fill="var(--accent)"/></svg>
+    <span>unicorn <span class="slash">/</span> scout</span>
+  </a>
   <div class="title" id="title"></div>
   <button class="theme-btn" type="button" onclick="toggleTheme()" aria-label="Toggle dark mode">
     <svg class="moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13.5 9.6A5.6 5.6 0 0 1 6.4 2.5a5.6 5.6 0 1 0 7.1 7.1Z"/></svg>
@@ -723,6 +729,7 @@ async function ask(text) {
   turn.finish(result);
   turns.push({...result, companies: result.companies || []});
   renderContext();
+  histCache.delete(sessionId);  // this chat changed; refetch it next time it's opened
   loadSessions();
   if (!account?.user) loadAccount();  // the first message creates the guest account
   input.focus();
@@ -766,16 +773,32 @@ function toast(msg) {
   setTimeout(() => t.remove(), 3200);
 }
 
+// Chat histories are cached, and the most recent few are fetched in the background, so opening one is instant.
+const histCache = new Map();
+async function fetchHist(id) {
+  if (histCache.has(id)) return histCache.get(id);
+  const res = await fetch(`/api/sessions/${id}`);
+  if (!res.ok) throw new Error(String(res.status));
+  const hist = await res.json();
+  histCache.set(id, hist);
+  return hist;
+}
+function prefetchRecent() {
+  chats.filter(c => c.id !== sessionId && !histCache.has(c.id)).slice(0, 3).forEach(c => fetchHist(c.id).catch(() => {}));
+}
+
 async function openSession(id, {quiet = false} = {}) {
   if (busy) busy.abort();
   turns = []; log.innerHTML = ""; closeSide();
   sessionId = id || null; store.set("session_id", sessionId); setUrl(sessionId); renderChats();
   if (!sessionId) { showEmpty(); renderContext(); setTitle(""); return; }
-  log.innerHTML = '<p class="muted shimmer" style="margin-top:12vh;text-align:center">Loading chat…</p>';
+  // Only show a loader if the fetch is actually slow; cached chats render before it would appear.
+  const loader = setTimeout(() => { log.innerHTML = '<p class="muted shimmer" style="margin-top:12vh;text-align:center">Loading chat…</p>'; }, 150);
   try {
-    const res = await fetch(`/api/sessions/${sessionId}`);
+    const hist = await fetchHist(id);
+    clearTimeout(loader);
+    if (sessionId !== id) return;  // the user opened another chat meanwhile
     log.innerHTML = "";
-    const hist = res.ok ? await res.json() : [];
     if (!hist.length) throw 0;
     setTitle(hist[0].user_query);
     for (const t of hist) {
@@ -784,8 +807,14 @@ async function openSession(id, {quiet = false} = {}) {
       new BotTurn().finish(r, {restored: true});
       turns.push(r);
     }
-    renderContext(); scrollDown(true);
+    renderContext();
+    // Land on the start of the latest question, so its answer is read from the top.
+    const lastU = [...log.querySelectorAll(".u")].pop();
+    thread.scrollTo({top: thread.scrollTop + lastU.getBoundingClientRect().top - thread.getBoundingClientRect().top - 16, behavior: "instant"});
   } catch {
+    clearTimeout(loader);
+    histCache.delete(id);
+    if (sessionId !== id) return;
     await openSession(null);
     if (!quiet) toast("That chat isn't available. It may have been deleted or belong to another account.");
   }
@@ -796,6 +825,7 @@ const TRASH = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" strok
 async function loadSessions() {
   try { const r = await fetch("/api/sessions"); chats = r.ok ? await r.json() : []; } catch { chats = []; }
   renderChats();
+  prefetchRecent();
 }
 function renderChats() {
   const nav = $("chats");
@@ -821,7 +851,7 @@ function renderChats() {
       }
       const r = await fetch(`/api/sessions/${c.id}`, {method: "DELETE"});
       if (!r.ok) return toast("Couldn't delete that chat.");
-      chats = chats.filter(x => x.id !== c.id);
+      chats = chats.filter(x => x.id !== c.id); histCache.delete(c.id);
       if (c.id === sessionId) await openSession(null); else renderChats();
       toast("Chat deleted");
     };
@@ -880,9 +910,10 @@ if (store.get("ctx_hidden")) { shell.classList.add("no-ctx"); $("ctxBtn").setAtt
 const params = new URLSearchParams(location.search);
 if (params.get("auth") === "failed") toast("Google sign-in didn't complete. Please try again.");
 loadAccount(); loadSessions();
-// ?q= (from the landing page) starts a fresh chat; ?c= opens that chat; otherwise reopen the last one.
+// /chat?c=<id> opens that chat (reloads and bookmarks keep it); plain /chat, e.g. from the home page, is a new chat.
+// ?q= (the home page's example questions) starts a new chat and asks it.
 const q = params.get("q");
-openSession(q ? null : params.get("c") || store.get("session_id"), {quiet: !params.get("c")})
+openSession(q ? null : params.get("c"))
   .then(() => { if (q) ask(q.slice(0, MAX)); });
 </script>
 </body>

@@ -28,8 +28,8 @@ class LLMResult:
 
 
 @lru_cache(maxsize=16)
-def _client(base_url: str, key: str) -> OpenAI:
-    return OpenAI(base_url=base_url, api_key=key, max_retries=0, timeout=30)
+def _client(base_url: str, key: str, timeout: float = 30) -> OpenAI:
+    return OpenAI(base_url=base_url, api_key=key, max_retries=0, timeout=timeout)
 
 
 def chat(messages: list[dict], *, name: str, json_mode: bool = False, prompt=None, max_tokens: int = 1000,
@@ -50,7 +50,7 @@ def chat(messages: list[dict], *, name: str, json_mode: bool = False, prompt=Non
             if on_token:
                 kwargs.update(stream=True, stream_options={"include_usage": True})
             try:
-                resp = _client(p["base_url"], key).chat.completions.create(**kwargs)
+                resp = _client(p["base_url"], key, p["timeout"]).chat.completions.create(**kwargs)
                 result = LLMResult("", p["name"], p["model"], p_idx > 0, context_window=p["context_window"])
                 if not on_token:
                     result.text = resp.choices[0].message.content or ""

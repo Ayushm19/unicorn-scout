@@ -36,11 +36,12 @@
   .nav-pill .btn { height: 38px; font-size: 14px; padding: 0 14px; }
 
   /* hero */
-  .hero { text-align: center; padding: 72px 0 40px; position: relative; }
-  .hero h1 { font-family: var(--display); font-weight: 800; font-size: clamp(44px, 8.4vw, 104px); line-height: .98;
-             letter-spacing: -.055em; margin: 22px auto 22px; max-width: 12ch; }
+  .hero { text-align: center; padding: 40px 0 40px; position: relative; }
+  /* sized by height as well as width, so the demo card's top is on screen at first load on laptops */
+  .hero h1 { font-family: var(--display); font-weight: 800; font-size: clamp(40px, min(8.4vw, 11.5vh), 100px); line-height: .98;
+             letter-spacing: -.055em; margin: 18px auto 16px; max-width: 12ch; }
   .hero h1 .serif { font-weight: 400; letter-spacing: -.02em; color: var(--accent); padding-right: .04em; }
-  .hero p.lede { font-size: clamp(16px, 1.6vw, 19px); color: var(--ink-2); max-width: 600px; margin: 0 auto 30px; line-height: 1.6; }
+  .hero p.lede { font-size: clamp(16px, 1.6vw, 19px); color: var(--ink-2); max-width: 700px; margin: 0 auto 24px; line-height: 1.6; }
   .hero .ctas { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
   .grid-bg { position: absolute; inset: 0; z-index: -1; opacity: .55;
              background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
@@ -249,7 +250,7 @@
       <a class="btn btn-ghost" href="#turn">Watch one turn ↓</a>
     </div>
 
-    <div class="demo-wrap reveal">
+    <div class="demo-wrap">
       <span class="aside-note">↙ a real conversation, replayed</span>
       <div class="frame" id="demo" aria-label="Replay of a real conversation with Unicorn Scout">
         <div class="frame-bar">

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Not found · Unicorn Scout</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%2314161a'/%3E%3Cpath d='M6 19 18 5l-4.5 14Z' fill='%23f6f5f0'/%3E%3Ccircle cx='18' cy='5' r='2' fill='%23e2553b'/%3E%3C/svg%3E">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/base.css">
+<style>
+  body { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  main { max-width: 520px; text-align: center; }
+  .code { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; color: var(--ink-3); }
+  h1 { font-family: var(--display); font-weight: 800; font-size: clamp(40px, 8vw, 64px); letter-spacing: -.05em; line-height: 1; margin: 18px 0 14px; }
+  h1 .serif { font-weight: 400; color: var(--accent); }
+  p { color: var(--ink-2); margin: 0 0 26px; }
+  .path { font-family: var(--mono); font-size: 13px; background: var(--paper-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; word-break: break-all; }
+  .ctas { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<main>
+  <a class="brand" href="/" aria-label="Unicorn Scout home">
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="var(--ink)"/><path d="M6 19 18 5l-4.5 14Z" fill="var(--paper)"/><path d="M9.6 16.2l4.4.9M11.6 13.4l3.4.7" stroke="var(--ink)" stroke-width="1.2"/><circle cx="18" cy="5" r="2" fill="var(--accent)"/></svg>
+    <span>unicorn <span class="slash">/</span> scout</span>
+  </a>
+  <h1>Not one of the <span class="serif">118.</span></h1>
+  <p>There's nothing at <span class="path" id="path"></span>. The page may have moved, or the link has a typo.</p>
+  <div class="ctas">
+    <a class="btn btn-primary" href="/chat">Start a chat <span class="arrow">↗</span></a>
+    <a class="btn btn-ghost" href="/">Back to home</a>
+  </div>
+  <p class="code" style="margin-top:28px">404</p>
+</main>
+<script>document.getElementById("path").textContent = location.pathname;</script>
+</body>
+</html>

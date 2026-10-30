@@ -15,7 +15,11 @@ GROQ_API_KEYS = _keys("GROQ_API_KEYS")
 GEMINI_API_KEYS = _keys("GEMINI_API_KEYS")
 
 # Providers are tried in order; each provider rotates through its keys before
-# falling back to the next provider. Both expose OpenAI-compatible endpoints.
+# falling back to the next provider. All expose OpenAI-compatible endpoints.
+# `timeout` caps one call: Gemini's free tier usually answers in ~2 s but sometimes stalls 20 s+,
+# so a stalled call moves on to the next key or model instead of holding the whole turn.
+# 3.1-flash-lite goes first: measured at 1-3 s while 3.5-flash-lite was taking 15-30 s on the free tier.
+_GEMINI = "https://generativelanguage.googleapis.com/v1beta/openai/"
 LLM_PROVIDERS = [
     {
         "name": "groq",
@@ -23,14 +27,25 @@ LLM_PROVIDERS = [
         "keys": GROQ_API_KEYS,
         "model": "openai/gpt-oss-120b",
         "context_window": 131_072,
+        "timeout": 30,
         "extra": {"reasoning_effort": "low"},
     },
     {
         "name": "gemini",
-        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "base_url": _GEMINI,
+        "keys": GEMINI_API_KEYS,
+        "model": "gemini-3.1-flash-lite",
+        "context_window": 1_048_576,
+        "timeout": 12,
+        "extra": {},
+    },
+    {
+        "name": "gemini",
+        "base_url": _GEMINI,
         "keys": GEMINI_API_KEYS,
         "model": "gemini-3.5-flash-lite",
         "context_window": 1_048_576,
+        "timeout": 12,
         "extra": {"reasoning_effort": "low"},  # default thinking made free-tier calls ~3x slower
     },
 ]
