@@ -98,8 +98,8 @@ _conn: psycopg.Connection | None = None
 
 
 def conn() -> psycopg.Connection:
-    # ponytail: one shared autocommit connection per function instance; switch to
-    # psycopg_pool if concurrent traffic per instance grows.
+    # One shared autocommit connection per function instance. Move to psycopg_pool if
+    # concurrent traffic per instance grows.
     global _conn
     if _conn is None or _conn.closed or _conn.broken:
         _conn = psycopg.connect(config.DATABASE_URL, autocommit=True, row_factory=dict_row)

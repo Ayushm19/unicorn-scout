@@ -58,7 +58,7 @@ class Filters(BaseModel, extra="ignore"):
     limit: int | None = None  # "top 5" -> 5
 
 
-# sort_by -> (key on a company row, highest first?). Money fields sort by approximate USD; unknown values go last.
+# sort_by -> (sort key, descending). Money fields sort by approximate USD; missing values go last.
 _SORTS = {"valuation": (lambda r: money_usd(r["valuation"]), True),
           "funding": (lambda r: money_usd(r["total_funding"]), True),
           "revenue": (lambda r: money_usd(r["annual_revenue"]), True),
@@ -337,7 +337,7 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
             request += f", ranked by {_SORT_LABELS[filters['sort_by']]}"
         lead = ""
         if route.intent == "filter_list":
-            # The count sentence is written in code: the model miscounts ("42" for 57 rows) and garbles scope.
+            # The count sentence is built here, not by the model, which miscounts long lists and blurs the scope.
             scoped = route.use_previous_results and bool(prev_ids)
             if filters.get("sort_by") and filters.get("limit") and not (scoped or widened):
                 lead = _ranked_sentence(rows, filters["sort_by"], limited=True)

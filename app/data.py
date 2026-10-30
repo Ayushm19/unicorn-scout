@@ -59,7 +59,7 @@ def money(value: str) -> str | None:
     return value if re.match(r"^[$₹]", value) or re.search(r"\b(USD|INR|SGD)\b", value) else None
 
 
-# ponytail: fixed FX rates, only used to order companies; swap in dated rates if exact USD figures ever matter.
+# Fixed FX rates are enough to order companies; use dated rates if exact USD figures are ever shown.
 _TO_USD = {"$": 1.0, "₹": 1 / 85, "SGD": 0.75}
 _UNITS = {"B": 1e9, "M": 1e6, "Cr": 1e7, "L": 1e5}
 

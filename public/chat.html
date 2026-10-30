@@ -767,7 +767,7 @@ async function ask(text) {
   renderContext();
   histCache.delete(sessionId);  // this chat changed; refetch it next time it's opened
   loadSessions();
-  if (!account?.user) loadAccount();  // the first message creates the guest account
+  if (!account?.user) loadAccount();  // the account box may not have loaded yet
   input.focus();
 }
 

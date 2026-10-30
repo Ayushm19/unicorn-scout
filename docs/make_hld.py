@@ -133,7 +133,7 @@ for b in (clarify, greet, offt, lookup, flt, rec):
 text(CX + 2, 965, "the router's intent picks one path", ORANGE, 18)
 text(CX + 350, 400, "reply straight away\n(no search)", GREEN, 18)
 
-# clarify loops back to the user (like a 'revise' loop)
+# a clarifying question loops back to the user
 arrow(T(clarify), T(user), GREEN, via=[(520, 190)], start=clarify, end=user, rough=1)
 text(420, 120, "user clicks an option →\nmerged with the original question", GREEN, 18)
 
