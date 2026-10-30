@@ -9,25 +9,11 @@ web UI as it happens, and logs every turn with the prompt versions used.
 Gemini embeddings (`gemini-embedding-001`, 768-d) · Neon Postgres + pgvector · Langfuse (tracing, prompt
 management, scores) · Llama Prompt Guard 2 · Vercel.
 
-## Requirements checklist
+## High-level design
 
-| Assignment requirement | Where it lives | How it was verified |
-|---|---|---|
-| Python chatbot over the static dataset only | `app/`, `data/tracxn.csv`; no web search anywhere | Answers cite only retrieved rows; "Kolkata" returns "none found" |
-| Factual questions ("What does Razorpay do?") | `company_lookup` intent → name match → fact card + summary | Sample §1 |
-| Filtering questions ("List fintech unicorns") | `filter_list` intent → exact SQL on sector group, city, country, stage, years, investor | Sample §1 (28 fintechs, 13 in Bengaluru, 6 since 2016) |
-| Subjective questions via knowledge matching | `recommendation` intent → pgvector similarity on company descriptions → 2-4 picks with reasons | Sample §2, §3 (AI partnership) |
-| Conversation context across turns, GenAI stack | Last 3 turns + previous answer's company ids rebuilt from `chat_logs`; LLM router resolves "it/these/those" | "Who are its investors?", "Which of these…", "Which of those…" |
-| Clarify instead of guessing | Router `clarify` intent with a question and 2-4 clickable options; the reply is merged with the original ask | Sample §2 |
-| Input trimming and normalization | `sanitize.py`: NFKC, control/zero-width chars stripped, whitespace collapsed, 500-char limit | `tests/test_sanitize.py` |
-| Malformed or irrelevant input | Empty/garbage → `rejected`; unrelated → `off_topic` | Sample §3 |
-| Prompt-injection protection | Regex heuristics → Llama Prompt Guard 2 classifier → prompts that treat input as data; parameterized SQL; escaped HTML | Sample §3 (blocked; disguised attack ignored) |
-| Logging: queries, responses, timestamps, session ids, structured | `chat_logs` (one row per turn) + `app_logs` + JSON stdout | Neon console; `/api/sessions/{id}` |
-| Metrics: queries, clarifications, errors/fallbacks, latency | `/api/metrics` (also by prompt version), UI Context panel, Langfuse scores | Metrics endpoint; Langfuse dashboard |
-| GenAI observability (e.g. Langfuse) | Trace per turn: guardrail → router → retriever → answer, sessions, linked prompt versions, `outcome` score | Langfuse traces and sessions |
-| Clean, modular code | One module per concern (table below) | n/a |
-| README: setup, run, architecture, assumptions, limitations | This file | n/a |
-| Sample interactions | [SAMPLE_INTERACTIONS.md](SAMPLE_INTERACTIONS.md), captured from a real run | n/a |
+[![Unicorn Scout HLD: how a question flows](docs/hld.png)](https://excalidraw.com/#json=gTGHAMRl2Ihfv-6hr4Vra,7RfgGl_Imyp5UMSQDCqKjA)
+
+[Open the diagram in Excalidraw](https://excalidraw.com/#json=gTGHAMRl2Ihfv-6hr4Vra,7RfgGl_Imyp5UMSQDCqKjA) · source: [docs/hld.excalidraw](docs/hld.excalidraw) (regenerate with `python docs/make_hld.py`)
 
 ## Setup
 
@@ -67,68 +53,6 @@ pytest -q                           # unit tests (no network needed)
 **Deploy:** `vercel deploy`, then add the same env vars in Vercel → Project → Settings → Environment
 Variables. Vercel detects the FastAPI `app` in `app/main.py`, serves `public/` from its CDN, and
 `vercel.json` (`cleanUrls`) maps `/chat` to `chat.html`.
-
-### API
-
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/api/chat/stream` | Server-sent events: `session`, `stage` (each pipeline step with timing and detail), `companies`, `token` (answer text), `result` |
-| `POST` | `/api/chat` | Same turn as one JSON response: reply, outcome, intent, filters, companies, tokens, stage timings, context breakdown, prompt versions, trace URL |
-| `GET` | `/api/sessions` | The current user's chats (id, title, last activity, turn count) for the sidebar |
-| `GET` | `/api/sessions/{id}` | Every turn of a chat with its company cards, so the UI can rebuild itself after a reload. 404 unless you own it |
-| `DELETE` | `/api/sessions/{id}` | Soft-deletes a chat you own (hidden from you, logs kept for analytics) |
-| `GET` | `/auth/login`, `/auth/callback` | Google sign-in (authorization-code flow with a CSRF `state`) |
-| `POST` | `/auth/logout` | Clears the session cookie |
-| `GET` | `/api/me` | The current user (or `null` when signed out) and whether Google sign-in is configured |
-| `GET` | `/api/metrics` | Query counts, clarifications, blocked, off-topic, errors, fallbacks, tokens, avg/p95 latency, and the same split by prompt version |
-| `GET` | `/api/health` | Database connectivity check |
-
-Chat endpoints identify the caller by the `scout_session` cookie, so API clients must keep cookies between
-requests (e.g. one `httpx.Client`). Without a signed-in session, `/api/chat` and `/api/chat/stream` return 401.
-
-### Accounts, chats and reloads
-
-- **Sign-in is required to chat.** The server enforces it (`auth.require_user`: 401 for anyone not signed in with
-  Google), and the UI mirrors it: on the home page, any link into the chat opens a "Continue with Google" dialog
-  instead (an example question you clicked is carried through sign-in and asked when you land); on the chat page,
-  signed-out visitors (including right after signing out) see a locked composer with a "Sign in first" bubble.
-  `/auth/login?next=` returns you to where you started, accepting same-site paths only (no open redirect).
-- **Who you are.** A signed, HttpOnly cookie holds only your user id. Signing in upserts your account by Google's
-  stable `sub` id. Chats a browser made as a guest before sign-in became mandatory are moved into the account the
-  first time it signs in; chats are never moved out of a signed-in account.
-- **Where chats live.** `chat_sessions` (id, owner, title, timestamps, soft delete) plus one `chat_logs` row per turn.
-  Every read and write checks ownership in SQL; someone else's chat id returns 404, never its contents.
-- **What happens on a hard reload.** The open chat is in the URL (`/chat?c=<id>`). On load the page asks
-  `/api/sessions/<id>` for the turns, then rebuilds the messages, step timelines, tables, fact cards and the Context
-  panel (from the stored token counts, stage timings, stage details and context breakdown), and scrolls to the start of
-  the latest question. Nothing is kept only in the browser, so the same chat opens identically on another device after
-  signing in. Plain `/chat` (e.g. from the home page) always starts a new chat; a bad or foreign `?c=` falls back to a
-  new chat with a notice.
-- **Instant switching.** After the sidebar loads, the three most recent chats are fetched in the background and cached,
-  so opening them renders immediately; a chat's cache entry is dropped when a new turn is added to it.
-- **What the model remembers.** Independently of the UI, every turn rebuilds the model's context on the server from
-  the last 3 turns of *that chat* in `chat_logs`, plus the companies from its latest answer ("these"). "New chat"
-  just starts a new chat id: the model starts with an empty memory, and the old chat stays in the sidebar.
-- **Langfuse** receives the opaque user id (never the email), so the Users view groups traces per person.
-
-## The web app
-
-- **Landing page** (`public/index.html`): what the bot does, a replay of a real turn, the pipeline step by step,
-  the data-quality fixes, and the stack. The telemetry strip shows live query counts from `/api/metrics`.
-- **Chat** (`public/chat.html`), built so the user is never left staring at a spinner:
-  - **Live pipeline.** Each stage appears as it runs ("Screening for prompt injection · score 0.0004 · 139 ms"),
-    then collapses to "Worked for 2.4 s · 6 steps".
-  - **Generative UI.** The answer's shape depends on the intent: a sortable table for lists, fact cards (side by
-    side for comparisons) for lookups, candidate chips with the picks highlighted for recommendations, and
-    clickable option chips for clarifications. Answer text streams token by token.
-  - **Context panel**, modelled on Claude's: how much of the model's context window the last call used, split
-    into instructions / company index / conversation memory / retrieved companies / question, plus the
-    turn's intent, filters, model, prompt versions, a stage waterfall, the working set that "these" refers to,
-    session totals, and a link to the Langfuse trace.
-  - **Sidebar** of past chats grouped by Today / Yesterday / Previous 7 and 30 days / Older, two-step delete,
-    and a Google sign-in / account box.
-  - Follow-up suggestions computed from the results, conversation restore after reload, keyboard shortcuts,
-    light mode by default with a dark toggle, mobile layout, and reduced-motion support.
 
 ## Architecture
 
@@ -213,18 +137,6 @@ chatbot.handle_turn(session, message, emit) ── one Langfuse trace per turn, 
 | Langfuse | Trace per turn (guardrail → router generation → retriever → streamed answer generation), sessions, token usage, time to first token, linked prompt versions, and an `outcome` score |
 | `/api/metrics`, the landing telemetry strip, the chat Context panel | Live totals and per-turn detail |
 
-## Data quality notes (handled in `app/data.py`)
-
-- The file is Windows-1252 encoded, not UTF-8, and contains non-breaking spaces.
-- The ₹ sign was lost upstream (`?569Cr`) and is restored.
-- `location` has trailing spaces. Users' "Bangalore"/"Gurgaon" map to the dataset's "Bengaluru"/"Gurugram".
-- Some columns are shifted:
-  - `top_investors_1/2` hold sector names in some rows (e.g. Perfios, Krutrim); these are dropped from investors.
-  - `total_funding_till_date` or `valuation` hold employee counts for 6 companies (boAt, OneCard, Physics Wallah, Open, FirstCry, Policybazaar). A money field must carry a currency, otherwise it is dropped. LivSpace's `1.33B SGD` is kept.
-- Some values are kept as-is because the bot never "corrects" the source. For example, Open's valuation reads `$186M` despite its unicorn status.
-- Missing values: `round_led_by` (47 rows), `total_funding_till_date` (31 + 4 dropped), `employee_count` (15).
-- 16 companies are headquartered outside India (14 US, 2 Singapore) but are on the Indian unicorn list.
-
 ## Assumptions and limitations
 
 - Answers reflect the dataset only (May 2025). No live data, so funding, valuations or status may be outdated.
@@ -232,17 +144,12 @@ chatbot.handle_turn(session, message, emit) ── one Langfuse trace per turn, 
   partnership programmes, APIs or strategy.
 - Free-tier rate limits (Groq: about 8K tokens/min per key) cap throughput at a few turns per minute per key; key
   rotation and the Gemini fallback absorb bursts. A turn on the fallback typically takes 3–10 s.
-- Gemini's free embedding quota is 100 texts/minute per key. Ingesting 118 companies rotates to the second key,
-  while queries use one embedding each.
 - The prompt-guard classifier fails open if it is unavailable; the regex layer and grounded prompts still apply.
-- On Gemini's free tier, prompts may be used by Google to improve its products. That is acceptable for this
-  public dataset, but not for private user data.
 - The context-window breakdown estimates each section's share from its character count, scaled to the provider's
   real prompt-token total.
 - Chatting requires a Google account. The OAuth app is published ("In production") with only basic scopes
   (name, email, picture), so no Google verification is needed; adding a logo would trigger verification.
 - No per-user rate limiting yet.
-- Stopping a streaming answer in the UI closes the stream; the server still finishes and logs the turn.
 
 ## With more time
 
@@ -251,3 +158,7 @@ chatbot.handle_turn(session, message, emit) ── one Langfuse trace per turn, 
 - A connection pool (`psycopg_pool`) for higher concurrency per function instance.
 - Parse valuation and funding into numbers for "top 5 by valuation"-style questions.
 - User feedback (thumbs up/down) sent as Langfuse scores.
+- A real "stop": today, stopping a streaming answer in the UI only closes the stream, while the server still
+  finishes and logs the turn. With more time the server would cancel the LLM call too.
+- Edit a sent message and re-run the turn from there.
+- Send a new message while an answer is still streaming (queue it, or stop the current answer and start the new one).

@@ -5,3 +5,4 @@ __pycache__/
 .vercel
 .pytest_cache/
 .claude/
+docs/hld.clipboard.json
