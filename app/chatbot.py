@@ -44,13 +44,14 @@ _CARD_FIELDS = ("id", "name", "sector", "sector_group", "city", "country", "stag
 
 
 class Filters(BaseModel, extra="ignore"):
-    sector_group: str | None = None
-    sector: str | None = None
-    city: str | None = None
-    country: str | None = None
+    # Text filters take one value or a list meaning "any of" ("cybersecurity and API management ones").
+    sector_group: list[str] | str | None = None
+    sector: list[str] | str | None = None
+    city: list[str] | str | None = None
+    country: list[str] | str | None = None
     exclude_country: list[str] | str | None = None  # "outside India" -> ["India"]
     exclude_city: list[str] | str | None = None  # "not in Bangalore or Mumbai" -> ["Bangalore", "Mumbai"]
-    stage: str | None = None
+    stage: list[str] | str | None = None
     founded_from: int | None = None  # inclusive
     founded_to: int | None = None  # inclusive
     investor: str | None = None
@@ -89,22 +90,26 @@ def normalize_filters(f: Filters | None) -> dict:
     if f is None:
         return {}
     out = f.model_dump(exclude_none=True)
-    if "sector_group" in out:
-        out["sector_group"] = next((g for g in SECTOR_GROUPS if g.lower() == out["sector_group"].lower()), None)
-    country = lambda c: _COUNTRY_ALIASES.get(c.strip().lower(), c.strip())
-    if "city" in out:
-        out["city"] = normalize_city(out["city"])
-    if "country" in out:
-        out["country"] = country(out["country"])
-    for key, norm in (("exclude_city", normalize_city), ("exclude_country", country)):
+    group = lambda g: next((x for x in SECTOR_GROUPS if x.lower() == g.lower()), None)
+    country = lambda c: _COUNTRY_ALIASES.get(c.lower(), c)
+    stage = lambda s: _STAGE_ALIASES.get(s.lower(), s.title())
+    norms = {"sector_group": group, "sector": str, "city": normalize_city, "country": country, "stage": stage,
+             "exclude_city": normalize_city, "exclude_country": country}
+    for key, norm in norms.items():
         if key in out:
-            values = [out[key]] if isinstance(out[key], str) else out[key]
-            out[key] = [norm(v) for v in values if v and v.strip()] or None
+            raw = [out[key]] if isinstance(out[key], str) else out[key]
+            # No dataset value contains " or ", so "cybersecurity or api management" is two values.
+            values = [norm(p.strip()) for v in raw for p in re.split(r"\s+or\s+", v, flags=re.I) if p.strip()]
+            values = list(dict.fromkeys(v for v in values if v))
+            # A single value stays a plain string; exclusions are always lists.
+            if not values:
+                out[key] = None
+            elif len(values) == 1 and not key.startswith("exclude_"):
+                out[key] = values[0]
+            else:
+                out[key] = values
     if out.get("limit") is not None and not 1 <= out["limit"] <= 118:
         del out["limit"]
-    if "stage" in out:
-        s = out["stage"].strip()
-        out["stage"] = _STAGE_ALIASES.get(s.lower(), s.title())
     return {k: v for k, v in out.items() if v not in ("", None)}
 
 

@@ -153,17 +153,18 @@ def search_companies(filters: dict, query_vec: list[float] | None, scope_ids: li
                      limit: int) -> list[dict]:
     """Structured filters + optional semantic ranking in one query."""
     where, params = [], {"limit": limit}
+    as_list = lambda v: [v] if isinstance(v, str) else v  # a filter is one value or a list meaning "any of"
     for col in ("sector_group", "city", "country", "stage"):
         if filters.get(col):
-            where.append(f"lower({col}) = lower(%({col})s)")
-            params[col] = filters[col]
+            where.append(f"lower({col}) = ANY(%({col})s)")
+            params[col] = [v.lower() for v in as_list(filters[col])]
     for col in ("country", "city"):
         if filters.get(f"exclude_{col}"):
             where.append(f"lower({col}) <> ALL(%(exclude_{col})s)")
             params[f"exclude_{col}"] = [v.lower() for v in filters[f"exclude_{col}"]]
     if filters.get("sector"):
-        where.append("sector ILIKE %(sector)s")
-        params["sector"] = f"%{filters['sector']}%"
+        where.append("sector ILIKE ANY(%(sector)s)")
+        params["sector"] = [f"%{s}%" for s in as_list(filters["sector"])]
     if filters.get("founded_from"):
         where.append("founded_year >= %(founded_from)s")
         params["founded_from"] = filters["founded_from"]

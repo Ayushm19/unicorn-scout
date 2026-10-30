@@ -427,10 +427,11 @@ function setTitle(text) { $("title").innerHTML = text ? `<b>${esc(text)}</b>` : 
 
 /* ---------- generative components ---------- */
 function filterChips(filters) {
-  const labels = {sector_group: v => v, sector: v => v, city: v => v, country: v => v, stage: v => v, investor: v => "investor: " + v,
-                  founded_from: v => "founded ≥ " + v, founded_to: v => "founded ≤ " + v, exclude_country: v => "outside " + [].concat(v).join(", "), exclude_city: v => "not " + [].concat(v).join(", "),
-                  sort_by: v => "by " + v, limit: v => "top " + v};
-  return Object.entries(filters || {}).map(([k, v]) => `<span class="chip">${esc((labels[k] || (x => x))(v))}</span>`).join("");
+  const labels = {investor: v => "investor: " + v, founded_from: v => "founded ≥ " + v, founded_to: v => "founded ≤ " + v,
+                  exclude_country: v => "outside " + v, exclude_city: v => "not " + v, sort_by: v => "by " + v, limit: v => "top " + v};
+  // A filter holds one value or a list meaning "any of".
+  return Object.entries(filters || {}).map(([k, v]) =>
+    `<span class="chip">${esc((labels[k] || (x => x))([].concat(v).join(k.startsWith("exclude_") ? ", " : " or ")))}</span>`).join("");
 }
 
 function tableView(companies, filters, scoped) {

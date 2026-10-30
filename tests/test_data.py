@@ -85,3 +85,12 @@ def test_count_sentence_states_scope_and_count():
         "Top 3 by valuation: **Flipkart** (≈ $36.0B), **Blinkit** (≈ $13.0B), **PhonePe** (≈ $12.2B).")
     oldest = sort_and_limit(load_companies(CSV), {"sort_by": "oldest", "limit": 2})
     assert _ranked_sentence(oldest, "oldest", limited=True).startswith("2 oldest: **Five Star Business Finance** (1984)")
+
+
+def test_filters_take_several_values():
+    f = normalize_filters(Filters(sector="cybersecurity or api management", city=["Bangalore", "Pune"],
+                                  sector_group=["fintech", "made-up"], stage="ipo"))
+    assert f == {"sector": ["cybersecurity", "api management"], "city": ["Bengaluru", "Pune"],
+                 "sector_group": "FinTech", "stage": "Public"}
+    # Real sector names contain "and" and commas; only " or " splits.
+    assert normalize_filters(Filters(sector="Speech and Voice Recognition")) == {"sector": "Speech and Voice Recognition"}
