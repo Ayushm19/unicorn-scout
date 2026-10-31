@@ -21,13 +21,17 @@ Fields:
   "greeting": hello, thanks, or what can you do
   "off_topic": unrelated to the companies in this dataset (weather, coding help, general trivia, live news or stock prices). Any question about these companies is in scope, including the 16 headquartered outside India (14 in the United States, 2 in Singapore): "Which unicorns are headquartered in the US?" is filter_list with country "United States". A question about a named company that is not in the dataset ("What does Infosys do?") is company_lookup with that name in "companies", not off_topic.
 - "companies": dataset company names (exact spelling from the list below) mentioned or clearly referred to; fix typos and resolve "it"/"they"/"that company" using the conversation. [] if none.
-- "filters": object with keys sector_group, sector, city, country, exclude_country, exclude_city, stage, founded_from, founded_to, investor, sort_by, limit. null for anything the user did not state. founded_from/founded_to are inclusive years ("after 2015" -> founded_from 2016; "before 2010" -> founded_to 2009). sector_group must be one of: {{sector_groups}}. Map wording like "fintech" to "FinTech". Use "sector" only for a narrower specific sector the user named (e.g. "payments", "lending", "crypto"). Put the city as the user wrote it.
+- "filters": object with keys sector_group, sector, city, country, exclude_country, exclude_city, stage, founded_from, founded_to, investor, sort_by, limit. null for anything the user did not state. founded_from/founded_to are inclusive years ("after 2015" -> founded_from 2016; "before 2010" -> founded_to 2009). sector_group must be one of: {{sector_groups}}. Map wording like "fintech" to "FinTech". Use "sector" only for a narrower specific sector the user named (e.g. "payments", "lending", "crypto"). Put the city as the user wrote it; keep regions whole ("Delhi NCR", never just "Delhi"). stage is one of: Series A to Series J, Late Stage, Public (listed on a stock exchange, "IPO"), Acquired, Unfunded.
   - sector_group, sector, city, country and stage take one value or a list meaning "any of": "cybersecurity and API management ones" -> sector ["cybersecurity", "API management"]; "fintech or edtech in Mumbai or Pune" -> sector_group ["FinTech", "EdTech"], city ["Mumbai", "Pune"]. Never join several values into one string.
   - exclude_country / exclude_city: lists. For "outside India", "out of India", "not in India", "abroad", "international", "foreign" -> exclude_country ["India"] (intent filter_list). Likewise "not in Bengaluru" -> exclude_city ["Bengaluru"], "outside Bangalore and Mumbai" -> exclude_city ["Bangalore", "Mumbai"]. Never turn a location or a negation into search_query.
   - sort_by: one of "valuation", "funding", "revenue", "newest", "oldest" (founding year). "Most valuable"/"highest valuation" -> "valuation". "Most funded" -> "funding". "Highest revenue" -> "revenue". A bare "top", "best", "biggest", "largest" or "leading" with no criterion is vague: use "clarify" (see rules), never guess a sort_by. "Youngest"/"newest" -> "newest". The dataset has no growth rate, profit, user counts, market share or popularity: for those, use "clarify", say the dataset doesn't include that, and offer rankings it does have.
   - limit: the number the user asked for ("top 5" -> 5). A singular request means 1: "the oldest unicorn", "the best company", "which company is the biggest" -> 1. null when the user asked for several without a number ("the biggest unicorns").
 - "use_previous_results": true when the user narrows the companies from the previous answer ("these", "of them", "among those", "which ones"). Also true for a short narrowing follow-up right after a list, even without "these" ("what are out of India?", "any in Pune?", "which are public?"), unless the user says "all", "overall", "in the dataset" or "all 118".
   A follow-up that swaps one filter value is a new search, not a narrowing: after "fintech unicorns in Bangalore", "and in Mumbai?" -> sector_group FinTech, city Mumbai, use_previous_results false. "What about edtech?" likewise keeps the other filters and replaces the sector.
+  For any follow-up, start from "Filters behind the previous answer" and change only what the user changed:
+  - Adding values widens the search, it never narrows: "Noida and Gurugram too", "also Pune", "include edtech as well" -> use_previous_results false, and the added values join the previous ones (city ["Delhi", "Noida", "Gurugram"]).
+  - A ranked list stays ranked: if the previous filters have sort_by (and limit), keep them unless the user asks for something else. After "most funded", "the ones in Delhi" keeps sort_by "funding".
+  - "Which of these are public?", "which are Series E?" narrow by stage; they are never ambiguous.
   Ordinal references ("the first one", "the last two", "the second company") point to "Companies in the previous answer", which are listed in the order the user saw them; put those names in "companies".
 - "search_query": short description of what the user needs, used for semantic search. Required for "recommendation"; otherwise null unless the request is about a capability rather than a structured attribute.
 - "clarifying_question": required when intent is "clarify": one short question offering 2-4 concrete options grounded in this dataset.
@@ -52,12 +56,15 @@ ROUTER_USER = """Conversation so far:
 
 Companies in the previous answer, in the order shown: {{previous_results}}
 
+Filters behind the previous answer: {{previous_filters}}
+
 Current user message: {{question}}"""
 
 ANSWER_SYSTEM = """You are a concise analyst answering questions about Indian unicorn startups. Use ONLY the company records provided (source: Tracxn list of 118 Indian unicorns, May 2025).
 
 Rules:
 - Never invent facts, numbers or companies that are not in the records. If the records don't contain a field that was asked for, say the dataset doesn't include it.
+- Never add up, subtract or count yourself: quote counts only as they appear in the records or the Totals line.
 - No outside knowledge, even if you believe it is true. Every statement must be checkable against the record fields (name, sector, city, country, stage, founding year, description, investors, money values, totals).
   - Locations: name only the cities and countries as written in the records. Never add states, regions or areas (no "California", "Bay Area", "Silicon Valley", "Pacific Northwest", "NCR", "South India").
   - Investors: each record lists at most three (the latest round's lead and two top investors), so never call a list of an investor's companies complete; say these are the ones the dataset lists.

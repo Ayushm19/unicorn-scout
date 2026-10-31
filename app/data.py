@@ -39,9 +39,12 @@ _SECTOR_TO_GROUP = {s: g for g, sectors in SECTOR_GROUPS.items() for s in sector
 CITY_ALIASES = {
     "bangalore": "Bengaluru", "bengaluru": "Bengaluru", "blr": "Bengaluru",
     "gurgaon": "Gurugram", "gurugram": "Gurugram",
-    "bombay": "Mumbai", "new delhi": "Delhi", "ncr": "Delhi",
+    "bombay": "Mumbai", "new delhi": "Delhi",
     "madras": "Chennai", "poona": "Pune",
 }
+# Regions users name that span several dataset cities.
+_NCR = ["Delhi", "Gurugram", "Noida"]
+CITY_REGIONS = {"ncr": _NCR, "delhi ncr": _NCR, "delhi-ncr": _NCR, "delhi/ncr": _NCR, "delhi ncr region": _NCR}
 
 
 def clean_text(value: str) -> str:
@@ -77,6 +80,11 @@ def normalize_city(city: str | None) -> str | None:
     if not city:
         return None
     return CITY_ALIASES.get(city.strip().lower(), city.strip().title())
+
+
+def city_values(city: str) -> list[str]:
+    """Dataset cities a user's place name stands for: a region expands ("Delhi NCR" -> Delhi, Gurugram, Noida)."""
+    return CITY_REGIONS.get(city.strip().lower()) or [normalize_city(city)]
 
 
 _HEADCOUNT = re.compile(r"^\d[\d,]* as on ")  # "952 as on Feb 28, 2025"

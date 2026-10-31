@@ -20,7 +20,7 @@ from langfuse import get_client, propagate_attributes
 from pydantic import BaseModel, ValidationError
 
 from app import config, db, llm, prompts
-from app.data import SECTOR_GROUPS, money_usd, normalize_city
+from app.data import SECTOR_GROUPS, city_values, money_usd
 from app.embeddings import embed_query
 from app.sanitize import REJECTION_MESSAGES, sanitize
 
@@ -35,6 +35,7 @@ OFF_TOPIC = ("I can only answer questions about the Indian unicorn startups in m
 ERROR_REPLY = "Sorry, something went wrong on my side. Please try again in a moment."
 DEFAULT_CLARIFY = "Could you tell me a bit more about what you're looking for (e.g. sector, city, or the kind of collaboration)?"
 
+_NCR_RE = re.compile(r"\bncr\b", re.I)
 _EXPLICIT_REF = re.compile(r"\b(these|those|them|they|above|previous|that list)\b", re.I)
 _STAGE_ALIASES ={"ipo": "Public", "listed": "Public", "public": "Public", "acquired": "Acquired"}
 _COUNTRY_ALIASES = {"us": "United States", "usa": "United States", "america": "United States",
@@ -93,13 +94,15 @@ def normalize_filters(f: Filters | None) -> dict:
     group = lambda g: next((x for x in SECTOR_GROUPS if x.lower() == g.lower()), None)
     country = lambda c: _COUNTRY_ALIASES.get(c.lower(), c)
     stage = lambda s: _STAGE_ALIASES.get(s.lower(), s.title())
-    norms = {"sector_group": group, "sector": str, "city": normalize_city, "country": country, "stage": stage,
-             "exclude_city": normalize_city, "exclude_country": country}
+    one = lambda norm: lambda v: [norm(v)]
+    # Each normalizer returns a list, so a region can stand for several cities ("Delhi NCR").
+    norms = {"sector_group": one(group), "sector": one(str), "city": city_values, "country": one(country),
+             "stage": one(stage), "exclude_city": city_values, "exclude_country": one(country)}
     for key, norm in norms.items():
         if key in out:
             raw = [out[key]] if isinstance(out[key], str) else out[key]
             # No dataset value contains " or ", so "cybersecurity or api management" is two values.
-            values = [norm(p.strip()) for v in raw for p in re.split(r"\s+or\s+", v, flags=re.I) if p.strip()]
+            values = [n for v in raw for p in re.split(r"\s+or\s+", v, flags=re.I) if p.strip() for n in norm(p.strip())]
             values = list(dict.fromkeys(v for v in values if v))
             # A single value stays a plain string; exclusions are always lists.
             if not values:
@@ -295,6 +298,9 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
                 turns[-1]["sanitized_query"] or turns[-1]["user_query"]):
             prev_ids = []
         prev_names = [r["name"] for r in db.companies_by_ids(prev_ids)]
+        # The filters behind the latest list (or clarified question), so a follow-up can keep, change or add to
+        # them ("Noida too", keep "most funded") instead of rebuilding them from the answer's prose.
+        prev_filters = next((t["filters"] for t in reversed(turns) if t["filters"]), None)
         history = _history_text(turns)
         d.update(turns=len(turns), working_set=len(prev_ids))
 
@@ -304,6 +310,7 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
         names = db.company_names()
         messages = router_prompt.compile(sector_groups=", ".join(SECTOR_GROUPS), company_names=names,
                                          history=history, previous_results=", ".join(prev_names) or "(none)",
+                                         previous_filters=json.dumps(prev_filters) if prev_filters else "(none)",
                                          question=s.text)
         res = llm.chat(messages, name="router", json_mode=True, prompt=router_prompt, max_tokens=1000,
                        temperature=0)
@@ -319,6 +326,10 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
                         extra={"ctx": {"raw": res.text[:500], "error": str(e)[:300]}})
             route = Route(intent="recommendation", search_query=s.text)
         filters = normalize_filters(route.filters)
+        # The router sometimes shortens "Delhi NCR" to "Delhi"; the region always means all three cities.
+        cities = [filters["city"]] if isinstance(filters.get("city"), str) else filters.get("city", [])
+        if "Delhi" in cities and _NCR_RE.search(s.text):
+            filters["city"] = list(dict.fromkeys(cities + city_values("NCR")))
         rec.update(intent=route.intent, filters=filters or None)
         d.update(intent=route.intent, filters=filters, companies=route.companies or [],
                  follow_up=route.use_previous_results and bool(prev_ids), provider=res.provider)

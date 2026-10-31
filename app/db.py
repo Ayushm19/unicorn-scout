@@ -211,7 +211,7 @@ def insert_chat_log(row: dict) -> None:
 def recent_turns(session_id: str, n: int) -> list[dict]:
     """Last n turns that reached the assistant (blocked/rejected input is excluded from context)."""
     rows = conn().execute(
-        """SELECT user_query, sanitized_query, response, outcome, retrieved_ids, created_at FROM chat_logs
+        """SELECT user_query, sanitized_query, response, outcome, retrieved_ids, filters, created_at FROM chat_logs
            WHERE session_id = %s AND outcome NOT IN ('blocked', 'rejected', 'error')
            ORDER BY created_at DESC LIMIT %s""",
         (session_id, n),

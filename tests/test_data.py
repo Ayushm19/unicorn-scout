@@ -104,3 +104,9 @@ def test_ranked_sentence_marks_more_only_when_more_follow():
         "Of the 28 companies in my previous answer, top 5 by valuation: **Flipkart**")
     everyone = sort_and_limit(load_companies(CSV), {"sort_by": "valuation"})
     assert _ranked_sentence(everyone, "valuation", limited=False).endswith(", …")
+
+
+def test_delhi_ncr_expands_to_its_dataset_cities():
+    assert normalize_filters(Filters(city="Delhi NCR")) == {"city": ["Delhi", "Gurugram", "Noida"]}
+    assert normalize_filters(Filters(city=["ncr", "Gurgaon"])) == {"city": ["Delhi", "Gurugram", "Noida"]}
+    assert normalize_filters(Filters(exclude_city="NCR")) == {"exclude_city": ["Delhi", "Gurugram", "Noida"]}
