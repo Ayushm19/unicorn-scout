@@ -94,3 +94,13 @@ def test_filters_take_several_values():
                  "sector_group": "FinTech", "stage": "Public"}
     # Real sector names contain "and" and commas; only " or " splits.
     assert normalize_filters(Filters(sector="Speech and Voice Recognition")) == {"sector": "Speech and Voice Recognition"}
+
+
+def test_ranked_sentence_marks_more_only_when_more_follow():
+    from app.chatbot import _ranked_sentence
+    top5 = sort_and_limit(load_companies(CSV), {"sort_by": "valuation", "limit": 5})
+    assert not _ranked_sentence(top5, "valuation", limited=True).endswith("…")
+    assert _ranked_sentence(top5, "valuation", limited=True, prev=28).startswith(
+        "Of the 28 companies in my previous answer, top 5 by valuation: **Flipkart**")
+    everyone = sort_and_limit(load_companies(CSV), {"sort_by": "valuation"})
+    assert _ranked_sentence(everyone, "valuation", limited=False).endswith(", …")

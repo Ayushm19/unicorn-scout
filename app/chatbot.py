@@ -142,15 +142,25 @@ def _count_sentence(n: int, prev: int, *, scoped: bool, widened: bool) -> str:
     return f"{n} of the 118 unicorns {match(n)}."
 
 
-def _ranked_sentence(rows: list[dict], sort_by: str, limited: bool) -> str:
-    """'Top 5 by valuation: Flipkart ≈ $36.0B, ...' so the order and values never depend on the model."""
+def _ranked_items(rows: list[dict], sort_by: str) -> str:
+    """The first five in ranking order with the value they are ranked by; "…" only when more follow."""
     field = _SORT_FIELD.get(sort_by)
     value = (lambda r: f"≈ {_usd(v)}" if (v := money_usd(r[field])) else "not reported") if field else (
         lambda r: str(r["founded_year"]))
+    return ", ".join(f"**{r['name']}** ({value(r)})" for r in rows[:5]) + (", …" if len(rows) > 5 else ".")
+
+
+def _ranked_sentence(rows: list[dict], sort_by: str, limited: bool, prev: int = 0) -> str:
+    """'Top 5 by valuation: Flipkart ≈ $36.0B, ...' so the order and values never depend on the model.
+    `prev` > 0 says the ranking was taken from the previous answer's companies."""
+    items = _ranked_items(rows, sort_by)
+    if not limited:
+        return f"Ranked by {_SORT_LABELS[sort_by]}: {items}"
     head = {"newest": f"{len(rows)} newest", "oldest": f"{len(rows)} oldest"}.get(
-        sort_by, f"Top {len(rows)} by {sort_by.replace('funding', 'total funding')}")
-    items = ", ".join(f"**{r['name']}** ({value(r)})" for r in rows[:5])
-    return f"{head}: {items}{', …' if len(rows) > 5 else ''}." if limited else f"Ranked by {sort_by}: {items}, …"
+        sort_by, f"top {len(rows)} by {sort_by.replace('funding', 'total funding')}")
+    if prev:
+        return f"Of the {prev} companies in my previous answer, {head}: {items}"
+    return f"{head[0].upper()}{head[1:]}: {items}"
 
 
 def _usd(x: float) -> str:
@@ -357,18 +367,21 @@ def _turn(session_id: str, raw: object, rec: dict, emit: Emit) -> dict:
         lead = ""
         if route.intent == "filter_list":
             # The count sentence is built here, not by the model, which miscounts long lists and blurs the scope.
-            scoped = route.use_previous_results and bool(prev_ids)
-            if filters.get("sort_by") and filters.get("limit") and not (scoped or widened):
-                lead = _ranked_sentence(rows, filters["sort_by"], limited=True)
+            # Narrowing a previous answer that already held all 118 isn't worth mentioning.
+            scoped = route.use_previous_results and 0 < len(prev_ids) < 118
+            sort_by = filters.get("sort_by")
+            attribute_filters = {k: v for k, v in filters.items() if k not in ("sort_by", "limit")}
+            if method == "vector":  # a list by meaning, not by attributes: a top-N, not a full count
+                lead = f"These are the {len(rows)} closest matches by description."
+            elif sort_by and filters.get("limit") and not widened:
+                lead = _ranked_sentence(rows, sort_by, limited=True, prev=len(prev_ids) if scoped else 0)
+            elif sort_by and not (attribute_filters or scoped or widened):
+                lead = f"All {len(rows)} unicorns, ranked by {_SORT_LABELS[sort_by]}: {_ranked_items(rows, sort_by)}"
             else:
-                if method == "vector":  # a list by meaning, not by attributes: a top-N, not a full count
-                    lead = f"These are the {len(rows)} closest matches by description."
-                elif filters or scoped or widened:
-                    lead = _count_sentence(len(rows), len(prev_ids), scoped=scoped, widened=widened)
-                else:
-                    lead = f"The dataset has {len(rows)} unicorns."
-                if filters.get("sort_by"):
-                    lead += " " + _ranked_sentence(rows, filters["sort_by"], limited=False)
+                lead = (_count_sentence(len(rows), len(prev_ids), scoped=scoped, widened=widened)
+                        if attribute_filters or scoped or widened else f"The dataset has {len(rows)} unicorns.")
+                if sort_by:
+                    lead += " " + _ranked_sentence(rows, sort_by, limited=False)
             request += ", count and ranking stated by the interface"
             emit("token", {"text": lead + " "})
         messages = answer_prompt.compile(history=history, intent=request, count=str(len(rows)),

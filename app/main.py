@@ -7,7 +7,7 @@ from pathlib import Path
 from queue import Queue
 from uuid import UUID, uuid4
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, StreamingResponse
 from langfuse import get_client
@@ -45,11 +45,11 @@ def _start_turn(request: Request, body: ChatIn) -> tuple[str, str]:
 
 
 @app.post("/api/chat")
-def chat(request: Request, body: ChatIn, background: BackgroundTasks) -> dict:
+def chat(request: Request, body: ChatIn) -> dict:
     """Plain JSON: one request, one complete answer."""
     session_id, user_id = _start_turn(request, body)
     out = chatbot.handle_turn(session_id, body.message, user_id=user_id)
-    background.add_task(get_client().flush)  # ship Langfuse spans before the function is frozen
+    get_client().flush()  # ship Langfuse spans before responding; Vercel freezes the function afterwards
     return out
 
 
@@ -68,8 +68,11 @@ def chat_stream(request: Request, body: ChatIn) -> StreamingResponse:
             events.put(("result", chatbot.handle_turn(session_id, body.message, lambda e, d: events.put((e, d)),
                                                       user_id=user_id)))
         finally:
-            events.put(None)
+            # Flush before ending the stream: once the response closes, Vercel freezes the function and an
+            # unfinished export is lost ("Failed to export spans batch due to timeout"). The user already has
+            # the result event, so this only delays closing the connection.
             get_client().flush()
+            events.put(None)
 
     threading.Thread(target=work, daemon=True).start()
 
