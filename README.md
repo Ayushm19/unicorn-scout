@@ -92,26 +92,33 @@ chatbot.handle_turn(session, message, emit) ── one Langfuse trace per turn, 
   8K tokens/minute, and 118 full records is roughly 12K tokens. More importantly, routing makes behaviour
   explicit and observable: every turn has an intent, filters and an outcome you can count.
 - **Hybrid retrieval.** "Fintech unicorns in Bangalore" is a structured question, so it is answered with exact
-  SQL filters (complete and correct lists). "Who could help with last-mile delivery?" is semantic, so it uses
-  pgvector similarity over company descriptions. One query can combine both.
+  SQL filters (complete and correct lists). Filters can hold several values ("cybersecurity or API management"),
+  exclusions ("outside India") and a ranking ("top 5 by valuation"). "Who could help with last-mile delivery?" is
+  semantic, so it uses pgvector similarity over company descriptions. One query can combine both.
 - **A derived `sector_group` column.** The dataset has 56 fine-grained sectors and no "FinTech" value. A
   hand-written 56 → 12 mapping (`data.py`) is deterministic and reviewable, unlike asking an LLM to guess
   at query time.
-- **Precomputed tallies.** For long lists, the answer prompt gets counts by city, sector, stage and founding
-  year. The model kept miscounting ("Bengaluru hosts over half" for 13 of 28) until it was handed the arithmetic.
+- **Counts and arithmetic in code.** For long lists, the answer prompt gets counts by city, sector, stage and founding
+  year, and a list answer opens with a sentence written in code ("Of the 28 companies in my previous answer, 13
+  match.", "Top 5 by valuation: Flipkart (≈ $36.0B), ..."). The model kept miscounting until it was handed the
+  arithmetic.
+- **Cleaning shifted columns.** In about 30 rows the scraped money fields are shifted: a valuation sits in
+  `annual_revenue` (dated on its funding round) and the funding sits in `valuation`. `data.py` moves them back,
+  so rankings and lookups use the right figures.
 - **The UI renders the records, the LLM explains them.** Tables and fact cards show the data, so the answer
   prompt (v3+) writes observations instead of re-listing rows. That is shorter, cheaper, and harder to get wrong.
 - **Conversation state lives in Postgres.** Serverless functions are stateless, so each turn rebuilds context
   from `chat_logs`: the last 3 exchanges for the LLM, plus the company ids from the latest answer within them,
   so that "which of *these*…" filters exactly that set rather than re-searching.
 - **Clarify instead of guess.** The router returns `intent: "clarify"` with a question and clickable options when
-  a recommendation has no stated need. It is told not to clarify if earlier turns already supplied the detail,
+  a recommendation has no stated need, or a ranking has no criterion ("top 5 companies" asks: by valuation, funding,
+  revenue or age). Options only offer what the dataset can answer. It is told not to clarify if earlier turns already supplied the detail,
   and to merge the user's answer with the original request. The company list is in the router prompt, so an
   exact name like "Open" is never treated as ambiguous.
 - **Prompt versioning.** Prompts are managed in Langfuse (label `production`) and linked to each generation.
-  Every `chat_logs` row stores `prompt_versions` (e.g. `{"router": 4, "answer": 4}`), so a prompt change can be
-  compared in SQL (`/api/metrics` → `by_prompt_version`) or in Langfuse. Four versions were shipped while testing,
-  each fixing an observed failure (see the commit history). The local copy in `prompts.py` is used if Langfuse is
+  Every `chat_logs` row stores `prompt_versions` (e.g. `{"router": 8, "answer": 9}`), so a prompt change can be
+  compared in SQL (`/api/metrics` → `by_prompt_version`) or in Langfuse. Each version fixed a failure observed while
+  testing (see the commit history). The local copy in `prompts.py` is used if Langfuse is
   unreachable and is recorded as `"fallback"`.
 - **Streaming without losing trace context.** The SSE endpoint runs the turn in a worker thread and relays queued
   events, so the Langfuse/OpenTelemetry context stays on one thread instead of hopping between generator steps.
@@ -142,8 +149,11 @@ chatbot.handle_turn(session, message, emit) ── one Langfuse trace per turn, 
 - Answers reflect the dataset only (May 2025). No live data, so funding, valuations or status may be outdated.
 - "Good fit for collaboration" is matched on company descriptions and sectors only; there is no data on
   partnership programmes, APIs or strategy.
-- Free-tier rate limits (Groq: about 8K tokens/min per key) cap throughput at a few turns per minute per key; key
-  rotation and the Gemini fallback absorb bursts. A turn on the fallback typically takes 3–10 s.
+- Free-tier rate limits cap throughput: Groq allows about 8K tokens/min and 200K tokens/day per key (roughly 40
+  turns a day per key). Key rotation and the Gemini fallback absorb bursts; a turn on the fallback typically takes 3–10 s.
+- Answers use only the record fields: cities and countries as written, no outside facts. Money rankings compare
+  values reported at different dates, with rupee and SGD amounts converted at fixed approximate rates.
+- The dataset lists at most three investors per company, so "which unicorns has X invested in" can miss some.
 - The prompt-guard classifier fails open if it is unavailable; the regex layer and grounded prompts still apply.
 - The context-window breakdown estimates each section's share from its character count, scaled to the provider's
   real prompt-token total.
